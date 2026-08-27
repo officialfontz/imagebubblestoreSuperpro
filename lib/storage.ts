@@ -147,6 +147,89 @@ export async function putObject(key: string, body: Uint8Array, contentType: stri
   return { key, url: `${cfg.publicBase}/${key}` };
 }
 
+// ── Catalog object ────────────────────────────────────────────────────────────
+// The catalog (names, collections, dimensions) lives in the bucket alongside
+// the images rather than on the server's disk. A container filesystem is
+// ephemeral — a redeploy wipes it and the images become an unlisted pile of
+// bytes — and requiring a mounted volume to avoid that made the app impossible
+// to host anywhere else.
+//
+// The key is derived from HMAC_KEY. A public bucket serves every key it holds,
+// but it cannot be listed, so an unguessable path is genuinely unreachable
+// without the secret. That keeps image names and collections private with no
+// second bucket and no extra rules to configure.
+
+const CATALOG_PREFIX = "_catalog";
+
+async function catalogKey(): Promise<string> {
+  const secret = process.env.HMAC_KEY?.trim() || "bubble-vault-dev-key";
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`catalog:${secret}`));
+  const hex = Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `${CATALOG_PREFIX}/${hex}.json`;
+}
+
+/** Reads the catalog. `null` means "no catalog stored yet", not an error. */
+export async function getCatalog(): Promise<string | null> {
+  const cfg = readR2Config();
+  if (!cfg) return null;
+
+  const res = await awsClient(cfg).fetch(objectUrl(cfg, await catalogKey()));
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`R2 catalog GET failed (${res.status})`);
+  return res.text();
+}
+
+export async function putCatalog(json: string): Promise<void> {
+  const cfg = readR2Config();
+  if (!cfg) throw new Error("R2 is not configured");
+
+  const payload = new TextEncoder().encode(json);
+  const res = await awsClient(cfg).fetch(objectUrl(cfg, await catalogKey()), {
+    method: "PUT",
+    body: payload,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Content-Length": String(payload.byteLength),
+      // Never cache: this object changes on every upload, rename, and move.
+      "Cache-Control": "no-store",
+    },
+  });
+  if (!res.ok) {
+    throw new Error(`R2 catalog PUT failed (${res.status}): ${(await res.text()).slice(0, 200)}`);
+  }
+}
+
+/** Lists every image object in the bucket — used to rebuild a lost catalog. */
+export async function listImageObjects(): Promise<{ key: string; size: number }[]> {
+  const cfg = readR2Config();
+  if (!cfg) return [];
+
+  const out: { key: string; size: number }[] = [];
+  let token: string | undefined;
+
+  do {
+    const url = new URL(`https://${cfg.accountId}.r2.cloudflarestorage.com/${cfg.bucket}`);
+    url.searchParams.set("list-type", "2");
+    url.searchParams.set("prefix", "img/");
+    url.searchParams.set("max-keys", "1000");
+    if (token) url.searchParams.set("continuation-token", token);
+
+    const res = await awsClient(cfg).fetch(url.toString());
+    if (!res.ok) throw new Error(`R2 list failed (${res.status})`);
+    const xml = await res.text();
+
+    for (const m of xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
+      const key = /<Key>([^<]+)<\/Key>/.exec(m[1])?.[1];
+      const size = Number(/<Size>(\d+)<\/Size>/.exec(m[1])?.[1] ?? 0);
+      if (key) out.push({ key, size });
+    }
+
+    token = /<NextContinuationToken>([^<]+)<\/NextContinuationToken>/.exec(xml)?.[1];
+  } while (token);
+
+  return out;
+}
+
 /** Best-effort delete. A missing object is treated as success. */
 // turbopackIgnore below: UPLOAD_DIR comes from the environment, so the bundler
 // cannot prove which directory is touched and would trace the whole project

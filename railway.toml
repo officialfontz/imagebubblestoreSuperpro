@@ -16,9 +16,9 @@ restartPolicyMaxRetries = 3
 #   VAULT_PASSWORD   Password for the vault UI (HTTP Basic Auth).
 #   HMAC_KEY         openssl rand -hex 32 — makes password comparison
 #                    constant-time. Required in production.
-#   DATA_DIR         Mount a Railway Volume here (e.g. /data) and point this at
-#                    it. vault.json lives here; without a volume your whole
-#                    catalog is wiped on every redeploy.
+#
+# NOT required once R2 is configured: the catalog lives in the bucket beside the
+# images, so there is no volume to mount and nothing on disk to lose.
 #
 # RECOMMENDED — turns on Cloudflare R2 (free egress, global CDN)
 #   R2_ACCOUNT_ID
@@ -28,7 +28,8 @@ restartPolicyMaxRetries = 3
 #   R2_PUBLIC_BASE       e.g. https://img.yourdomain.com  (no trailing slash)
 #
 # OPTIONAL
-#   UPLOAD_DIR       Only used when R2 is NOT configured. Point at the volume
-#                    too (e.g. /data/uploads) or local images die on redeploy.
+#   DATA_DIR         Only used when R2 is NOT configured. Point at a mounted
+#   UPLOAD_DIR       Volume (/data and /data/uploads) or everything is wiped on
+#                    every redeploy.
 #   PUBLIC_HOST      Your custom domain, e.g. vault.yourdomain.com — needed so
 #                    server actions accept requests from it.

@@ -38,18 +38,17 @@
 
 ### 2. Deploy
 
-Deploy repo นี้เป็น service ใหม่บน Railway แล้ว **Attach a Volume** ไว้ที่ `/data`
+Deploy repo นี้เป็น service ใหม่บน Railway ได้เลย — **ไม่ต้องมี Volume**
 
-> Volume จำเป็น — `vault.json` (ชื่อรูป คอลเลกชัน ขนาด) เก็บอยู่ตรงนั้น
-> ถ้าไม่มี Volume ข้อมูลจะหายทุกครั้งที่ redeploy ทั้งที่ไฟล์รูปยังอยู่ใน R2
+> เมื่อตั้งค่า R2 แล้ว แคตตาล็อก (ชื่อรูป คอลเลกชัน ขนาด) จะถูกเก็บใน bucket
+> ข้าง ๆ ไฟล์รูป ไม่ได้อยู่บนดิสก์ของเซิร์ฟเวอร์ — redeploy กี่ครั้งก็ไม่หาย
+> และย้ายไป host ที่ไหนก็ได้
 
 ### 3. ตั้ง environment variables
 
 ```
 VAULT_PASSWORD=<รหัสผ่านที่จะใช้เข้าเว็บ>
 HMAC_KEY=<openssl rand -hex 32>
-DATA_DIR=/data
-
 R2_ACCOUNT_ID=<Account ID จากหน้า R2>
 R2_ACCESS_KEY_ID=<จาก API token>
 R2_SECRET_ACCESS_KEY=<จาก API token>
@@ -59,9 +58,24 @@ R2_PUBLIC_BASE=https://img.yourdomain.com
 PUBLIC_HOST=vault.yourdomain.com
 ```
 
-ยังไม่ได้ตั้งค่า R2 ก็ใช้งานได้ทันที — จะเก็บลงดิสก์ของ Railway ไปก่อน (ต้องตั้ง
-`UPLOAD_DIR=/data/uploads` ด้วย ไม่งั้นรูปหายตอน redeploy) พอเติมค่า R2 ทีหลัง
-รูปใหม่จะขึ้น R2 อัตโนมัติ **และลิงก์ของรูปเก่ายังใช้ได้เหมือนเดิม**
+ยังไม่ได้ตั้งค่า R2 ก็ใช้งานได้ทันที — จะเก็บทั้งรูปและแคตตาล็อกลงดิสก์ไปก่อน
+(บน Railway ต้องตั้ง `DATA_DIR=/data` + `UPLOAD_DIR=/data/uploads` และผูก Volume
+ด้วย ไม่งั้นหายตอน redeploy) พอเติมค่า R2 ทีหลัง ทุกอย่างจะย้ายไปอยู่บน R2 เอง
+
+---
+
+## กู้คืนแคตตาล็อก
+
+ไฟล์รูปคือส่วนที่ทนทาน — ไม่ได้พึ่งแคตตาล็อกเลย ถ้าแคตตาล็อกหายหรือเสีย
+สร้างใหม่จากสิ่งที่อยู่ใน bucket จริงได้:
+
+```bash
+node scripts/rebuild-catalog.mjs --dry   # ดูก่อนว่าจะกู้อะไรบ้าง
+node scripts/rebuild-catalog.mjs         # เติมรูปที่หายไปกลับเข้าแคตตาล็อก
+```
+
+**ลิงก์ทุกอันยังใช้ได้เหมือนเดิม** เพราะ key ของไฟล์ไม่เคยเปลี่ยน สิ่งที่กู้ไม่ได้คือ
+ข้อมูลที่มีอยู่แค่ในแคตตาล็อก — ชื่อที่ตั้งเอง คอลเลกชัน และสถานะถังขยะ
 
 ---
 
@@ -138,14 +152,19 @@ app/
   vault.css             คอมโพเนนต์
 scripts/
   import-images.mjs     ย้ายรูปจากโฟลเดอร์เดิมเข้าคลัง
+  rebuild-catalog.mjs   กู้แคตตาล็อกจากไฟล์ที่อยู่ใน bucket
 lib/
-  storage.ts            ไดรเวอร์ R2 / ดิสก์
-  store.ts              vault.json + write mutex
+  storage.ts            ไดรเวอร์ R2 / ดิสก์ + อ่าน-เขียนแคตตาล็อก
+  store.ts              แคตตาล็อก + write mutex
   actions.ts            server actions (อัปโหลด ลบ ย้าย เปลี่ยนชื่อ)
   session.ts            cookie เซ็นด้วย HMAC
   auth.ts               requireAuth() ที่เรียกในทุก action
 proxy.ts                edge gate: auth + rate limit + bot filter
 ```
 
-ไฟล์รูปอยู่ใน R2 ส่วน**แคตตาล็อก**อยู่ใน `vault.json` ไฟล์เดียว — สำรองง่าย
-แก้ด้วยมือได้ และไม่ต้องมีฐานข้อมูลให้ดูแล
+ทั้งไฟล์รูปและ**แคตตาล็อก** (JSON ไฟล์เดียว) อยู่ใน R2 — เซิร์ฟเวอร์ไม่เก็บอะไรเลย
+ปิดเปิด redeploy ย้ายเครื่อง ก็ไม่มีอะไรหาย และไม่ต้องมีฐานข้อมูลให้ดูแล
+
+แคตตาล็อกเก็บที่ key ที่คำนวณจาก `HMAC_KEY` — bucket แบบ public เสิร์ฟทุก key
+ที่มี แต่ list ไม่ได้ ดังนั้น path ที่เดาไม่ถูกจึงเข้าไม่ถึงจริง ๆ ชื่อรูปและ
+คอลเลกชันของคุณเลยเป็นส่วนตัวโดยไม่ต้องตั้งค่าอะไรเพิ่ม

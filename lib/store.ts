@@ -11,6 +11,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { emptyVault, type VaultData, type VaultAlbum, type VaultImage } from "./types";
+import { getDriver, getCatalog, putCatalog } from "./storage";
 
 export const DATA_DIR   = process.env.DATA_DIR ?? path.join(process.cwd(), "data");
 export const VAULT_PATH = path.join(DATA_DIR, "vault.json");
@@ -94,28 +95,48 @@ function normalize(raw: unknown): VaultData {
 
 // ── Read / write ──────────────────────────────────────────────────────────────
 
-export async function loadVault(): Promise<VaultData> {
-  if (_cache && Date.now() < _cache.expiresAt) return _cache.data;
+async function readRaw(): Promise<string | null> {
+  if (getDriver() === "r2") return getCatalog();
   try {
-    const raw = JSON.parse(await fs.readFile(VAULT_PATH, "utf8"));
-    const data = normalize(raw);
-    _cache = { data, expiresAt: Date.now() + CACHE_TTL };
-    return data;
+    return await fs.readFile(VAULT_PATH, "utf8");
   } catch {
-    // Missing file on first run is the normal path, not an error.
-    const data = emptyVault();
-    _cache = { data, expiresAt: Date.now() + CACHE_TTL };
-    return data;
+    return null; // missing file on first run is the normal path, not an error
   }
 }
 
+export async function loadVault(): Promise<VaultData> {
+  if (_cache && Date.now() < _cache.expiresAt) return _cache.data;
+
+  let data: VaultData;
+  try {
+    const raw = await readRaw();
+    data = raw ? normalize(JSON.parse(raw)) : emptyVault();
+  } catch (e) {
+    // A network blip reading the catalog must not look like an empty library —
+    // the UI would render "no images" and a subsequent write would persist that
+    // as the truth. Fail loudly instead.
+    console.error("loadVault failed:", e);
+    throw new Error("อ่านคลังรูปไม่สำเร็จ");
+  }
+
+  _cache = { data, expiresAt: Date.now() + CACHE_TTL };
+  return data;
+}
+
 async function writeVault(data: VaultData): Promise<void> {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  // Write-then-rename: a crash mid-write leaves the previous vault.json intact
-  // instead of a truncated file that would orphan every image in the bucket.
-  const tmp = `${VAULT_PATH}.${process.pid}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify(data, null, 2), "utf8");
-  await fs.rename(tmp, VAULT_PATH);
+  const json = JSON.stringify(data, null, 2);
+
+  if (getDriver() === "r2") {
+    await putCatalog(json);
+  } else {
+    await fs.mkdir(DATA_DIR, { recursive: true });
+    // Write-then-rename: a crash mid-write leaves the previous file intact
+    // rather than a truncated one that would orphan every image in the bucket.
+    const tmp = `${VAULT_PATH}.${process.pid}.tmp`;
+    await fs.writeFile(tmp, json, "utf8");
+    await fs.rename(tmp, VAULT_PATH);
+  }
+
   _cache = { data, expiresAt: Date.now() + CACHE_TTL };
 }
 
