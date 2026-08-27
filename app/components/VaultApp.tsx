@@ -17,7 +17,8 @@ import {
   renameVaultImage, moveVaultImages,
   createVaultAlbum, updateVaultAlbum, deleteVaultAlbum,
 } from "@/lib/actions";
-import Rail, { ALL, UNFILED, TRASH } from "./Rail";
+import Rail, { ALL, UNFILED, TRASH, TEXT_TOOL } from "./Rail";
+import TextTool from "./TextTool";
 import Tile from "./Tile";
 import Viewer from "./Viewer";
 import Tray, { type UploadJob } from "./Tray";
@@ -92,9 +93,12 @@ export default function VaultApp({ initialData, storage }: Props) {
 
   // ── Derived ─────────────────────────────────────────────────────────────────
   const inTrash = active === TRASH;
+  // The text tool takes over the main column; none of the image chrome applies.
+  const inTextTool = active === TEXT_TOOL;
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
+    if (active === TEXT_TOOL) return [];
     const list = images.filter((img) => {
       // Binned images appear in exactly one place, and nowhere else.
       if (Boolean(img.deletedAt) !== (active === TRASH)) return false;
@@ -174,6 +178,7 @@ export default function VaultApp({ initialData, storage }: Props) {
     active === ALL ? "รูปทั้งหมด"
     : active === UNFILED ? "ยังไม่จัดหมวด"
     : active === TRASH ? "ถังขยะ"
+    : active === TEXT_TOOL ? "ค้นหา & แทนที่"
     : albums.find((a) => a.id === active)?.name ?? "รูปทั้งหมด";
 
   // ── Upload ──────────────────────────────────────────────────────────────────
@@ -567,14 +572,18 @@ export default function VaultApp({ initialData, storage }: Props) {
         <header className="bar">
           <div className="bar-title">
             <h1>{title}</h1>
-            <span className="tnum">
-              {visible.length} รูป
-              {query && ` · ค้นหา “${query}”`}
-            </span>
+            {!inTextTool && (
+              <span className="tnum">
+                {visible.length} รูป
+                {query && ` · ค้นหา “${query}”`}
+              </span>
+            )}
           </div>
 
           <div className="bar-spacer" />
 
+          {!inTextTool && (
+          <>
           <label className="search">
             <Search size={15} color="var(--ink-4)" />
             <input
@@ -625,6 +634,8 @@ export default function VaultApp({ initialData, storage }: Props) {
               อัปโหลด
             </button>
           )}
+          </>
+          )}
         </header>
 
         <div
@@ -635,6 +646,8 @@ export default function VaultApp({ initialData, storage }: Props) {
             ? ({ "--tile": "132px", "--gap": "11px" } as React.CSSProperties)
             : undefined}
         >
+          {inTextTool ? <TextTool /> : <>
+
           {/* The reversible-vs-permanent distinction should never be a surprise. */}
           {inTrash && visible.length > 0 && (
             <div className="v-note">
@@ -712,6 +725,8 @@ export default function VaultApp({ initialData, storage }: Props) {
               </div>
             </>
           )}
+
+          </>}
         </div>
       </div>
 

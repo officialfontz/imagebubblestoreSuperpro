@@ -4,7 +4,7 @@
 
 import { useState } from "react";
 import {
-  Upload, Images, Inbox, Plus, Pencil, HardDrive, Cloud, Layers, LogOut, Trash2,
+  Upload, Images, Inbox, Plus, Pencil, HardDrive, Cloud, Layers, LogOut, Trash2, Replace,
 } from "lucide-react";
 import type { VaultAlbum } from "@/lib/types";
 import { signOut } from "@/lib/login-actions";
@@ -13,6 +13,7 @@ import { formatBytes } from "./ui";
 export const ALL = "__all__";
 export const UNFILED = "__unfiled__";
 export const TRASH = "__trash__";
+export const TEXT_TOOL = "__text__";
 
 type Props = {
   albums: VaultAlbum[];
@@ -150,6 +151,19 @@ export default function Rail({
             </button>
           ))
         )}
+      </nav>
+
+      <nav className="rail-tools">
+        <div className="nav-label">เครื่องมือ</div>
+        <button
+          type="button"
+          className="nav-item"
+          data-active={active === TEXT_TOOL}
+          onClick={() => onSelect(TEXT_TOOL)}
+        >
+          <span className="nav-icon"><Replace size={16} /></span>
+          <span className="nav-name">ค้นหา &amp; แทนที่</span>
+        </button>
       </nav>
 
       <div className="rail-foot">
