@@ -17,14 +17,29 @@ import type { VaultData, VaultImage, VaultAlbum } from "./types";
 export type ActionResult<T = object> = ({ ok: true } & T) | { ok: false; error: string };
 
 // ── Encoding config ───────────────────────────────────────────────────────────
-// 2400 px is deliberately larger than the storefront's 1400 px: the vault is a
-// general-purpose host, and R2 egress is free, so there is no reason to throw
-// away detail at upload time. Downscaling for a specific slot is done at read
-// time by Cloudflare Image Resizing (/cdn-cgi/image/width=…), which needs a
-// generous original to work from.
-const MAX_DIMENSION  = 2400;
-const WEBP_QUALITY   = 85;
+// R2 egress is free and 10 GB of storage covers tens of thousands of images, so
+// there is nothing to buy by compressing hard — quality is the only thing worth
+// optimising for. 3000 px keeps a generous original for Cloudflare's read-time
+// resizer (/cdn-cgi/image/width=…) to work from, and q92 is high enough that
+// artefacts around text and flat colour do not show.
+//
+// Override per-deployment if a different trade-off is wanted.
+const MAX_DIMENSION   = Number(process.env.VAULT_MAX_DIMENSION ?? 3000);
+const WEBP_QUALITY    = Number(process.env.VAULT_WEBP_QUALITY ?? 92);
 const MAX_INPUT_BYTES = 15 * 1024 * 1024;
+
+/**
+ * Flat-colour graphics — price cards, banners, logos, screenshots — often come
+ * out SMALLER as lossless WebP than as a high-quality lossy one, because large
+ * areas of identical colour compress almost for free. Photographs never do.
+ *
+ * Source format is a good enough proxy: PNG and GIF are what graphics arrive
+ * as, JPEG is what cameras produce. Trying lossless on every 12 MP photo would
+ * burn CPU on a candidate that cannot win.
+ */
+function shouldTryLossless(ext: string): boolean {
+  return ext === "png" || ext === "gif" || ext === "webp";
+}
 
 const MIME_TO_EXT: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -97,20 +112,37 @@ export async function uploadToVault(formData: FormData): Promise<ActionResult<{ 
     let blur: string | undefined;
 
     try {
-      const pipeline = sharp(input, { animated: isAnimated })
-        .rotate() // apply EXIF orientation, then drop the tag
-        .resize(MAX_DIMENSION, MAX_DIMENSION, { fit: "inside", withoutEnlargement: true });
+      const resized = () =>
+        sharp(input, { animated: isAnimated })
+          .rotate() // apply EXIF orientation, then drop the tag
+          .resize(MAX_DIMENSION, MAX_DIMENSION, { fit: "inside", withoutEnlargement: true });
 
-      const { data, info } = await pipeline
+      const lossy = await resized()
         .webp({ quality: WEBP_QUALITY, effort: 4 })
         .toBuffer({ resolveWithObject: true });
 
+      // Lossless is a free upgrade whenever it also happens to be smaller —
+      // perfect fidelity at no cost in bytes. Animated frames are excluded:
+      // lossless multiplies their size with no chance of winning.
+      let best = lossy;
+      if (!isAnimated && shouldTryLossless(ext)) {
+        try {
+          const lossless = await resized()
+            .webp({ lossless: true, effort: 4 })
+            .toBuffer({ resolveWithObject: true });
+          if (lossless.data.length < lossy.data.length) best = lossless;
+        } catch {
+          // Keep the lossy candidate — it already succeeded.
+        }
+      }
+
+      const { data, info } = best;
       width  = info.width;
       // sharp reports an animated WebP's height as frames × frame-height.
       height = isAnimated && info.pages && info.pages > 1 ? Math.round(info.height / info.pages) : info.height;
 
-      // Re-encoding a small PNG (a logo, a flat-colour icon) as WebP can come
-      // out *larger*. Never make a file worse than what was handed to us.
+      // Re-encoding can still come out larger than the source. Never hand back
+      // a file worse than the one we were given.
       if (data.length < input.length) {
         output = data;
         outExt = "webp";

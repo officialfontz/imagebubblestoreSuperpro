@@ -29,8 +29,14 @@ import { randomUUID } from "node:crypto";
 import sharp from "sharp";
 import { AwsClient } from "aws4fetch";
 
-const MAX_DIMENSION = 2400;
-const WEBP_QUALITY = 85;
+const MAX_DIMENSION = Number(process.env.VAULT_MAX_DIMENSION ?? 3000);
+const WEBP_QUALITY = Number(process.env.VAULT_WEBP_QUALITY ?? 92);
+
+/** Flat-colour graphics often come out smaller as lossless WebP than as a
+ *  high-quality lossy one. Photographs never do — see lib/actions.ts. */
+function shouldTryLossless(ext) {
+  return ext === ".png" || ext === ".gif" || ext === ".webp";
+}
 const IMAGE_EXT = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
 
 // ── Args ──────────────────────────────────────────────────────────────────────
@@ -121,12 +127,22 @@ async function putObject(key, body, contentType) {
 async function encode(input, ext) {
   const animated = ext === ".gif";
   try {
-    const { data, info } = await sharp(input, { animated })
-      .rotate()
-      .resize(MAX_DIMENSION, MAX_DIMENSION, { fit: "inside", withoutEnlargement: true })
-      .webp({ quality: WEBP_QUALITY, effort: 4 })
-      .toBuffer({ resolveWithObject: true });
+    const resized = () =>
+      sharp(input, { animated })
+        .rotate()
+        .resize(MAX_DIMENSION, MAX_DIMENSION, { fit: "inside", withoutEnlargement: true });
 
+    const lossy = await resized().webp({ quality: WEBP_QUALITY, effort: 4 }).toBuffer({ resolveWithObject: true });
+
+    let best = lossy;
+    if (!animated && shouldTryLossless(ext)) {
+      try {
+        const lossless = await resized().webp({ lossless: true, effort: 4 }).toBuffer({ resolveWithObject: true });
+        if (lossless.data.length < lossy.data.length) best = lossless;
+      } catch { /* keep the lossy candidate */ }
+    }
+
+    const { data, info } = best;
     const height = animated && info.pages > 1 ? Math.round(info.height / info.pages) : info.height;
 
     // Small flat-colour PNGs can re-encode larger as WebP. Never make a file
