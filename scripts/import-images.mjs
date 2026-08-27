@@ -108,13 +108,19 @@ async function putObject(key, body, contentType) {
     region: "auto",
   });
 
+  const payload = new Uint8Array(body);
   const encoded = key.split("/").map(encodeURIComponent).join("/");
   const res = await client.fetch(
     `https://${cfg.accountId}.r2.cloudflarestorage.com/${cfg.bucket}/${encoded}`,
     {
       method: "PUT",
-      body,
-      headers: { "Content-Type": contentType, "Cache-Control": "public, max-age=31536000, immutable" },
+      body: payload,
+      headers: {
+        "Content-Type": contentType,
+        // R2 answers 411 without this — see lib/storage.ts.
+        "Content-Length": String(payload.byteLength),
+        "Cache-Control": "public, max-age=31536000, immutable",
+      },
     },
   );
   if (!res.ok) throw new Error(`R2 PUT ${res.status}: ${(await res.text()).slice(0, 200)}`);

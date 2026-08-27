@@ -119,11 +119,20 @@ export async function putObject(key: string, body: Uint8Array, contentType: stri
     return { key: filename, url: `/uploads/${filename}` };
   }
 
+  // A fresh, exact-size copy. sharp returns Buffers that are views into a shared
+  // pool, so handing the raw view to fetch risks sending the wrong byte range.
+  const payload = new Uint8Array(body);
+
   const res = await awsClient(cfg).fetch(objectUrl(cfg, key), {
     method: "PUT",
-    body: new Uint8Array(body),
+    body: payload,
     headers: {
       "Content-Type": contentType,
+      // R2 rejects a PUT with no Content-Length (411 MissingContentLength).
+      // Whether fetch derives one from a typed-array body depends on the undici
+      // version, so this worked on the Node release used locally and failed on
+      // the one the deploy runs. Setting it explicitly removes the dependency.
+      "Content-Length": String(payload.byteLength),
       // Keys embed a UUID and are never reused, so browsers and Cloudflare can
       // hold them forever. This is what makes a page with 300 vault images
       // essentially free after the first view.
