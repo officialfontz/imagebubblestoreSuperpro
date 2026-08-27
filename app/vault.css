@@ -580,3 +580,20 @@
 }
 .v-note svg { flex: none; color: var(--violet-hi); }
 .v-note b { color: var(--ink); font-weight: 600; }
+
+/* ── Free-tier meter ─────────────────────────────────────────────────────── */
+.quota { margin-top: 11px; }
+.quota-track {
+  height: 3px; border-radius: 2px; overflow: hidden;
+  background: rgba(255, 255, 255, 0.07);
+}
+.quota-track span {
+  display: block; height: 100%; border-radius: 2px;
+  background: var(--violet);
+  transition: width 0.4s var(--ease);
+}
+.quota-legend {
+  display: flex; justify-content: space-between; gap: 8px;
+  margin-top: 6px; font-size: 10.5px; color: var(--ink-4);
+}
+.quota-legend span:last-child { color: var(--ok); }

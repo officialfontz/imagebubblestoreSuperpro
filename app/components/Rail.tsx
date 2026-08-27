@@ -37,6 +37,13 @@ export default function Rail({
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const onR2 = storage.driver === "r2";
 
+  // R2's free tier covers 10 GB of storage. It is not a hard cap — past it the
+  // charge is a couple of cents per GB — but it is the only number here that
+  // can actually turn into a bill, so it is the only one worth metering.
+  // Egress has no quota at all, which is why there is no bandwidth gauge.
+  const FREE_STORAGE_BYTES = 10 * 1024 ** 3;
+  const freeTierPct = Math.min(100, (totalBytes / FREE_STORAGE_BYTES) * 100);
+
   // Only collections accept a drop, and only while tiles are actually in flight.
   const dropProps = (id: string, albumId: string | null) =>
     isDraggingTiles
@@ -159,6 +166,20 @@ export default function Rail({
             <div><b className="tnum">{counts.all}</b>รูป</div>
             <div><b className="tnum">{formatBytes(totalBytes)}</b>ใช้ไป</div>
           </div>
+
+          {onR2 && (
+            <div className="quota" title={`${formatBytes(totalBytes)} จาก 10 GB ที่ใช้ได้ฟรี`}>
+              <div className="quota-track">
+                {/* Always paint at least a hairline: a bar that reads as empty
+                    at 0.02% looks broken rather than reassuring. */}
+                <span style={{ width: `${Math.max(freeTierPct, 0.8)}%` }} />
+              </div>
+              <div className="quota-legend">
+                <span>{freeTierPct < 0.1 ? "< 0.1" : freeTierPct.toFixed(1)}% ของ 10 GB ฟรี</span>
+                <span>แบนด์วิดท์ไม่จำกัด</span>
+              </div>
+            </div>
+          )}
           {!onR2 && (
             <p className="storage-hint">
               ยังเก็บบนดิสก์เซิร์ฟเวอร์ ต่อ Cloudflare R2 แล้วรูปจะวิ่งผ่าน CDN ฟรี ไม่กิน bandwidth{" "}
