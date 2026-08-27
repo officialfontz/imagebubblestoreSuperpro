@@ -16,9 +16,9 @@
   --active:    rgba(255, 255, 255, 0.08);
 
   /* ── Lines ── */
-  --line:      rgba(255, 255, 255, 0.065);
-  --line-2:    rgba(255, 255, 255, 0.11);
-  --line-lit:  rgba(192, 132, 252, 0.34);
+  --line:      rgba(255, 255, 255, 0.07);
+  --line-2:    rgba(255, 255, 255, 0.12);
+  --line-lit:  rgba(167, 139, 250, 0.42);
 
   /* ── Ink ── */
   --ink:       #f6f3fe;
@@ -26,28 +26,36 @@
   --ink-3:     #6d6590;
   --ink-4:     #4a4467;
 
-  /* ── Accent ── */
-  --violet:    #a855f7;
-  --violet-lo: #8b5cf6;
-  --violet-hi: #d8b4fe;
-  --fuchsia:   #e879f9;
-  --grad:      linear-gradient(135deg, #8b5cf6 0%, #a855f7 45%, #e879f9 100%);
-  --glow:      0 8px 28px -8px rgba(168, 85, 247, 0.62);
+  /* ── Accent ──
+     One solid violet, no gradient. A gradient reads as decoration; a single
+     confident colour reads as a system, and it keeps every control looking
+     like it belongs to the same product. */
+  --violet:      #8b5cf6;
+  --violet-hov:  #9d70f8;
+  --violet-act:  #7c4ded;
+  --violet-hi:   #c9b3fd;
+  --violet-dim:  rgba(139, 92, 246, 0.14);
+
+  /* Depth comes from a hairline of light along the top edge plus a tight
+     shadow — the way a physical key catches light. No coloured glow. */
+  --lift:      inset 0 1px 0 rgba(255, 255, 255, 0.13), 0 1px 2px rgba(0, 0, 0, 0.4);
+  --lift-hi:   inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 2px 6px rgba(0, 0, 0, 0.45);
 
   /* ── Semantic ── */
   --ok:        #4ade80;
   --warn:      #fbbf24;
   --danger:    #fb7185;
 
-  /* ── Shape & motion ── */
-  --r-sm: 9px;
-  --r:    13px;
-  --r-lg: 18px;
-  --r-xl: 24px;
+  /* ── Shape & motion ──
+     Tighter than before: large radii on small controls read as soft and toy-like. */
+  --r-sm: 7px;
+  --r:    10px;
+  --r-lg: 14px;
+  --r-xl: 18px;
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   --t:    0.18s var(--ease);
   --t-lg: 0.4s var(--ease);
-  --shadow-pop: 0 32px 64px -20px rgba(0, 0, 0, 0.8), 0 0 0 1px var(--line);
+  --shadow-pop: 0 24px 48px -16px rgba(0, 0, 0, 0.75), 0 0 0 1px var(--line-2);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
