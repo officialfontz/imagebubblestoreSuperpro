@@ -154,16 +154,29 @@ export async function putObject(key: string, body: Uint8Array, contentType: stri
 // bytes — and requiring a mounted volume to avoid that made the app impossible
 // to host anywhere else.
 //
-// The key is derived from HMAC_KEY. A public bucket serves every key it holds,
-// but it cannot be listed, so an unguessable path is genuinely unreachable
-// without the secret. That keeps image names and collections private with no
-// second bucket and no extra rules to configure.
+// A public bucket serves every key it holds but cannot be listed, so an
+// unguessable path is genuinely unreachable — that is what keeps image names
+// and collections private without a second bucket or extra rules.
+//
+// The path is derived from the R2 secret access key, NOT from HMAC_KEY. Every
+// machine that can reach this bucket holds the same R2 credentials by
+// definition, so they all agree on where the catalog lives; HMAC_KEY is per
+// deployment, and deriving from it put the laptop and the deployed app on
+// different paths, each seeing an empty library.
+//
+// Set VAULT_CATALOG_KEY to pin the location explicitly — needed if the R2 token
+// is ever rotated, since the derived path would otherwise move with it.
 
 const CATALOG_PREFIX = "_catalog";
 
-async function catalogKey(): Promise<string> {
-  const secret = process.env.HMAC_KEY?.trim() || "bubble-vault-dev-key";
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`catalog:${secret}`));
+async function catalogKey(cfg: R2Config): Promise<string> {
+  const override = process.env.VAULT_CATALOG_KEY?.trim();
+  if (override) return override.replace(/^\/+/, "");
+
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`bubble-vault-catalog:${cfg.secretAccessKey}`),
+  );
   const hex = Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
   return `${CATALOG_PREFIX}/${hex}.json`;
 }
@@ -173,7 +186,7 @@ export async function getCatalog(): Promise<string | null> {
   const cfg = readR2Config();
   if (!cfg) return null;
 
-  const res = await awsClient(cfg).fetch(objectUrl(cfg, await catalogKey()));
+  const res = await awsClient(cfg).fetch(objectUrl(cfg, await catalogKey(cfg)));
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`R2 catalog GET failed (${res.status})`);
   return res.text();
@@ -184,7 +197,7 @@ export async function putCatalog(json: string): Promise<void> {
   if (!cfg) throw new Error("R2 is not configured");
 
   const payload = new TextEncoder().encode(json);
-  const res = await awsClient(cfg).fetch(objectUrl(cfg, await catalogKey()), {
+  const res = await awsClient(cfg).fetch(objectUrl(cfg, await catalogKey(cfg)), {
     method: "PUT",
     body: payload,
     headers: {

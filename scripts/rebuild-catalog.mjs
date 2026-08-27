@@ -56,9 +56,11 @@ const objectUrl = (key) =>
   `https://${accountId}.r2.cloudflarestorage.com/${bucket}/${key.split("/").map(encodeURIComponent).join("/")}`;
 
 // Must match catalogKey() in lib/storage.ts.
-const catalogKey = `_catalog/${createHash("sha256")
-  .update(`catalog:${process.env.HMAC_KEY?.trim() || "bubble-vault-dev-key"}`)
-  .digest("hex")}.json`;
+const catalogKey =
+  process.env.VAULT_CATALOG_KEY?.trim().replace(/^\/+/, "") ||
+  `_catalog/${createHash("sha256")
+    .update(`bubble-vault-catalog:${process.env.R2_SECRET_ACCESS_KEY}`)
+    .digest("hex")}.json`;
 
 // ── List every image object ──────────────────────────────────────────────────
 async function listImages() {
