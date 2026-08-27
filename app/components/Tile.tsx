@@ -11,7 +11,8 @@ type Props = {
   selected: boolean;
   index: number;
   onCopy: () => void;
-  onToggle: () => void;
+  /** `range` is true when Shift was held — select from the anchor to here. */
+  onToggle: (range: boolean) => void;
   onOpen: () => void;
   onMenu: (e: React.MouseEvent) => void;
   onDragStart: () => void;
@@ -28,6 +29,7 @@ export default function Tile({
   return (
     <figure
       className="tile"
+      data-id={image.id}
       data-sel={selected}
       data-dragging={dragging}
       // Staggered entrance, capped so a 300-image album does not spend nine
@@ -47,7 +49,7 @@ export default function Tile({
         className="tile-check"
         data-on={selected}
         aria-label={selected ? `เอา ${image.name} ออกจากที่เลือก` : `เลือก ${image.name}`}
-        onClick={(e) => { e.stopPropagation(); onToggle(); }}
+        onClick={(e) => { e.stopPropagation(); onToggle(e.shiftKey); }}
       >
         {selected && <Check size={12} color="#fff" strokeWidth={3} />}
       </button>
@@ -60,7 +62,8 @@ export default function Tile({
         tabIndex={0}
         aria-label={`คัดลอกลิงก์ของ ${image.name}`}
         onClick={(e) => {
-          if (e.metaKey || e.ctrlKey || e.shiftKey) { onToggle(); return; }
+          if (e.shiftKey) { onToggle(true); return; }
+          if (e.metaKey || e.ctrlKey) { onToggle(false); return; }
           onCopy();
         }}
         onKeyDown={(e) => {

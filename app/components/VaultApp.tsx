@@ -7,20 +7,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Upload, Search, X, Copy, Trash2, Pencil, FolderInput, ExternalLink,
-  ArrowUpDown, LayoutGrid, Grid2x2, Check, ImageOff, Sparkles, Inbox, Shrink,
+  ArrowUpDown, LayoutGrid, Grid2x2, Check, ImageOff, Sparkles, Inbox, Shrink, Undo2,
 } from "lucide-react";
 import type { VaultData, VaultImage, VaultAlbum, CopyFormat } from "@/lib/types";
 import { formatLink, resizedUrl, RESIZE_WIDTHS } from "@/lib/types";
 import type { StorageStatus } from "@/lib/storage";
 import {
-  uploadToVault, deleteVaultImages, renameVaultImage, moveVaultImages,
+  uploadToVault, deleteVaultImages, restoreVaultImages, purgeVaultImages,
+  renameVaultImage, moveVaultImages,
   createVaultAlbum, updateVaultAlbum, deleteVaultAlbum,
 } from "@/lib/actions";
-import Rail, { ALL, UNFILED } from "./Rail";
+import Rail, { ALL, UNFILED, TRASH } from "./Rail";
 import Tile from "./Tile";
 import Viewer from "./Viewer";
 import Tray, { type UploadJob } from "./Tray";
 import { useVirtualGrid } from "./useVirtualGrid";
+import { useMarqueeSelect } from "./useMarqueeSelect";
 import {
   Menu, MenuItem, PromptModal, ConfirmModal, ToastStack, copyText,
   type Toast, type PromptSpec, type ConfirmSpec, type MenuAnchor,
@@ -89,11 +91,15 @@ export default function VaultApp({ initialData, storage }: Props) {
   }, []);
 
   // ── Derived ─────────────────────────────────────────────────────────────────
+  const inTrash = active === TRASH;
+
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     const list = images.filter((img) => {
+      // Binned images appear in exactly one place, and nowhere else.
+      if (Boolean(img.deletedAt) !== (active === TRASH)) return false;
       if (active === UNFILED && img.albumId !== null) return false;
-      if (active !== ALL && active !== UNFILED && img.albumId !== active) return false;
+      if (active !== ALL && active !== UNFILED && active !== TRASH && img.albumId !== active) return false;
       if (q && !img.name.toLowerCase().includes(q)) return false;
       return true;
     });
@@ -119,16 +125,40 @@ export default function VaultApp({ initialData, storage }: Props) {
     canvasRef.current?.scrollTo({ top: 0 });
   }, []);
 
+  // ── Drag a box across empty space to select ────────────────────────────────
+  // The ids covered mid-drag replace whatever the drag itself added, so shrinking
+  // the box de-selects again; `base` is what was selected before the drag began.
+  const marqueeBase = useRef<Set<string>>(new Set());
+
+  const onMarquee = useCallback((ids: string[], additive: boolean) => {
+    setSelected((prev) => {
+      if (marqueeBase.current.size === 0 && additive) marqueeBase.current = new Set(prev);
+      const next = additive ? new Set(marqueeBase.current) : new Set<string>();
+      for (const id of ids) next.add(id);
+      return next;
+    });
+  }, []);
+
+  const marquee = useMarqueeSelect({
+    scrollRef: canvasRef,
+    enabled: visible.length > 0,
+    onSelect: onMarquee,
+    onClear: useCallback(() => { marqueeBase.current = new Set(); setSelected(new Set()); }, []),
+  });
+
   const counts = useMemo(() => {
     const byAlbum = new Map<string, number>();
-    let unfiled = 0;
+    let unfiled = 0, all = 0, trash = 0;
     for (const img of images) {
+      if (img.deletedAt) { trash++; continue; }
+      all++;
       if (img.albumId === null) unfiled++;
       else byAlbum.set(img.albumId, (byAlbum.get(img.albumId) ?? 0) + 1);
     }
-    return { byAlbum, unfiled, all: images.length };
+    return { byAlbum, unfiled, all, trash };
   }, [images]);
 
+  // Binned images still occupy R2 until the trash is emptied, so they count.
   const totalBytes = useMemo(() => images.reduce((sum, i) => sum + i.bytes, 0), [images]);
 
   // Scoped to what is on screen, not to the raw id set. Filtering or switching
@@ -143,10 +173,11 @@ export default function VaultApp({ initialData, storage }: Props) {
   const title =
     active === ALL ? "รูปทั้งหมด"
     : active === UNFILED ? "ยังไม่จัดหมวด"
+    : active === TRASH ? "ถังขยะ"
     : albums.find((a) => a.id === active)?.name ?? "รูปทั้งหมด";
 
   // ── Upload ──────────────────────────────────────────────────────────────────
-  const targetAlbum = active === ALL || active === UNFILED ? null : active;
+  const targetAlbum = active === ALL || active === UNFILED || active === TRASH ? null : active;
   // Read through a ref inside the queue runner, so files dropped just before a
   // collection switch still land where they were dropped.
   const targetAlbumRef = useRef(targetAlbum);
@@ -288,13 +319,42 @@ export default function VaultApp({ initialData, storage }: Props) {
   const doDelete = useCallback(async (ids: string[]) => {
     const snapshot = images;
     const idSet = new Set(ids);
-    setImages((prev) => prev.filter((i) => !idSet.has(i.id)));
+    const now = Date.now();
+    setImages((prev) => prev.map((i) => (idSet.has(i.id) ? { ...i, deletedAt: now } : i)));
     setSelected(new Set());
     setViewerId(null);
     const res = await guard(() => deleteVaultImages(ids), () => setImages(snapshot));
     if (!res) return;
     if (!res.ok) { setImages(snapshot); say(res.error, "error"); }
-    else say(`ลบแล้ว ${res.deleted} รูป`);
+    else say(`ย้าย ${res.deleted} รูปไปถังขยะ`);
+  }, [images, say, guard]);
+
+  const doRestore = useCallback(async (ids: string[]) => {
+    const snapshot = images;
+    const idSet = new Set(ids);
+    setImages((prev) => prev.map((i) => {
+      if (!idSet.has(i.id)) return i;
+      const { deletedAt: _dropped, ...rest } = i;
+      return rest;
+    }));
+    setSelected(new Set());
+    setViewerId(null);
+    const res = await guard(() => restoreVaultImages(ids), () => setImages(snapshot));
+    if (!res) return;
+    if (!res.ok) { setImages(snapshot); say(res.error, "error"); }
+    else say(`กู้คืน ${res.restored} รูปแล้ว`);
+  }, [images, say, guard]);
+
+  const doPurge = useCallback(async (ids: string[]) => {
+    const snapshot = images;
+    const idSet = new Set(ids);
+    setImages((prev) => prev.filter((i) => !idSet.has(i.id)));
+    setSelected(new Set());
+    setViewerId(null);
+    const res = await guard(() => purgeVaultImages(ids), () => setImages(snapshot));
+    if (!res) return;
+    if (!res.ok) { setImages(snapshot); say(res.error, "error"); }
+    else say(`ลบถาวร ${res.purged} รูป`);
   }, [images, say, guard]);
 
   const doMove = useCallback(async (ids: string[], albumId: string | null) => {
@@ -347,7 +407,11 @@ export default function VaultApp({ initialData, storage }: Props) {
   }, [albums, images, say, guard]);
 
   // ── Selection ───────────────────────────────────────────────────────────────
+  // Where a Shift-click measures from: the last tile touched without Shift.
+  const anchorId = useRef<string | null>(null);
+
   const toggle = useCallback((id: string) => {
+    anchorId.current = id;
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
@@ -355,14 +419,41 @@ export default function VaultApp({ initialData, storage }: Props) {
     });
   }, []);
 
-  const askDelete = useCallback((targets: VaultImage[]) => {
-    setConfirm({
-      title: targets.length > 1 ? `ลบ ${targets.length} รูป?` : `ลบ "${targets[0].name}"?`,
-      body: "ลิงก์จะใช้ไม่ได้ทันทีและกู้คืนไม่ได้ — ถ้าเอาไปแปะไว้ที่เว็บอื่น รูปตรงนั้นจะหายไปด้วย",
-      confirm: "ลบถาวร",
-      onConfirm: () => void doDelete(targets.map((i) => i.id)),
+  /**
+   * Shift-click selects everything between the anchor and the clicked tile, in
+   * the order currently on screen — so it follows the active sort and filter
+   * rather than some hidden underlying order.
+   */
+  const selectRange = useCallback((id: string) => {
+    const to = visible.findIndex((i) => i.id === id);
+    if (to === -1) return;
+    const fromId = anchorId.current;
+    const from = fromId ? visible.findIndex((i) => i.id === fromId) : -1;
+    if (from === -1) { toggle(id); return; }
+
+    const [lo, hi] = from <= to ? [from, to] : [to, from];
+    setSelected((prev) => {
+      // Additive: shift-clicking a second range keeps the first.
+      const next = new Set(prev);
+      for (let i = lo; i <= hi; i++) next.add(visible[i].id);
+      return next;
     });
+  }, [visible, toggle]);
+
+  /** Binning is reversible and the links keep working, so it needs no dialog. */
+  const askDelete = useCallback((targets: VaultImage[]) => {
+    void doDelete(targets.map((i) => i.id));
   }, [doDelete]);
+
+  /** Purging is the irreversible one, so this is where the warning lives. */
+  const askPurge = useCallback((targets: VaultImage[]) => {
+    setConfirm({
+      title: targets.length > 1 ? `ลบถาวร ${targets.length} รูป?` : `ลบถาวร "${targets[0].name}"?`,
+      body: "ไฟล์จะถูกลบออกจาก R2 จริง ๆ และกู้คืนไม่ได้ — ถ้าลิงก์นี้ถูกเอาไปแปะไว้ที่เว็บอื่น รูปตรงนั้นจะหายไปด้วย",
+      confirm: "ลบถาวร",
+      onConfirm: () => void doPurge(targets.map((i) => i.id)),
+    });
+  }, [doPurge]);
 
   const askRename = useCallback((img: VaultImage) => {
     setPrompt({
@@ -413,7 +504,7 @@ export default function VaultApp({ initialData, storage }: Props) {
       }
       if ((e.key === "Delete" || e.key === "Backspace") && selectedImages.length) {
         e.preventDefault();
-        askDelete(selectedImages);
+        if (inTrash) askPurge(selectedImages); else askDelete(selectedImages);
         return;
       }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c" && selectedImages.length) {
@@ -423,7 +514,7 @@ export default function VaultApp({ initialData, storage }: Props) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selectedCount, selectedImages, visible, query, viewerId, prompt, confirm, askDelete, copyMany]);
+  }, [selectedCount, selectedImages, visible, query, viewerId, prompt, confirm, askDelete, askPurge, inTrash, copyMany]);
 
   // ── Menu helpers ────────────────────────────────────────────────────────────
   const closeMenu = useCallback(() => setMenu(null), []);
@@ -510,29 +601,64 @@ export default function VaultApp({ initialData, storage }: Props) {
             </button>
           </div>
 
-          <button type="button" className="btn btn--primary" onClick={() => fileInput.current?.click()}>
-            <Upload size={15} strokeWidth={2.2} />
-            อัปโหลด
-          </button>
+          {inTrash ? (
+            <button
+              type="button"
+              className="btn btn--danger"
+              disabled={visible.length === 0}
+              onClick={() => askPurge(visible)}
+            >
+              <Trash2 size={15} />
+              ล้างถังขยะ
+            </button>
+          ) : (
+            <button type="button" className="btn btn--primary" onClick={() => fileInput.current?.click()}>
+              <Upload size={15} strokeWidth={2.2} />
+              อัปโหลด
+            </button>
+          )}
         </header>
 
         <div
           ref={canvasRef}
           className="canvas"
+          onMouseDown={() => { marqueeBase.current = new Set(); }}
           style={dense
             ? ({ "--tile": "132px", "--gap": "11px" } as React.CSSProperties)
             : undefined}
         >
+          {/* The reversible-vs-permanent distinction should never be a surprise. */}
+          {inTrash && visible.length > 0 && (
+            <div className="v-note">
+              <Undo2 size={14} />
+              <span>
+                รูปที่นี่ยังไม่ถูกลบจริง — <b>ลิงก์เดิมยังใช้งานได้ปกติ</b> และกู้คืนได้ตลอด
+                จะหายจริงก็ต่อเมื่อกด “ลบถาวร” เท่านั้น
+              </span>
+            </div>
+          )}
+
+          {marquee && (
+            <div
+              className="marquee"
+              style={{ left: marquee.left, top: marquee.top, width: marquee.width, height: marquee.height }}
+            />
+          )}
+
           {visible.length === 0 && pendingCount === 0 ? (
             <div className="empty">
               <span className="empty-orb">
-                {query ? <ImageOff size={30} /> : active === UNFILED ? <Inbox size={30} /> : <Sparkles size={30} />}
+                {query ? <ImageOff size={30} /> : inTrash ? <Trash2 size={30} /> : active === UNFILED ? <Inbox size={30} /> : <Sparkles size={30} />}
               </span>
-              <h2>{query ? "ไม่พบรูปที่ค้นหา" : `${title} — ยังไม่มีรูป`}</h2>
+              <h2>
+                {query ? "ไม่พบรูปที่ค้นหา" : inTrash ? "ถังขยะว่างเปล่า" : `${title} — ยังไม่มีรูป`}
+              </h2>
               <p>
                 {query
                   ? "ลองเปลี่ยนคำค้น หรือดูที่ “รูปทั้งหมด”"
-                  : <>ลากไฟล์มาวางตรงไหนก็ได้ กด <span className="kbd">Ctrl</span><span className="kbd">V</span> วางจากคลิปบอร์ด หรือกดปุ่มอัปโหลดด้านบน</>}
+                  : inTrash
+                    ? "รูปที่ลบจะมาพักที่นี่ก่อน กู้คืนได้ตลอด จนกว่าจะกดลบถาวร"
+                    : <>ลากไฟล์มาวางตรงไหนก็ได้ กด <span className="kbd">Ctrl</span><span className="kbd">V</span> วางจากคลิปบอร์ด หรือกดปุ่มอัปโหลดด้านบน</>}
               </p>
             </div>
           ) : (
@@ -568,7 +694,7 @@ export default function VaultApp({ initialData, storage }: Props) {
                     selected={selected.has(img.id)}
                     dragging={dragTiles?.includes(img.id) ?? false}
                     onCopy={() => void copyOne(img)}
-                    onToggle={() => toggle(img.id)}
+                    onToggle={(range) => (range ? selectRange(img.id) : toggle(img.id))}
                     onOpen={() => setViewerId(img.id)}
                     onMenu={(e) => openTileMenu(e, img)}
                     onDragStart={() => setDragTiles(selected.has(img.id) ? [...selected] : [img.id])}
@@ -608,23 +734,36 @@ export default function VaultApp({ initialData, storage }: Props) {
           <button type="button" className="btn btn--sm" onClick={() => void copyMany(selectedImages, "direct")}>
             <Copy size={13} /> คัดลอกลิงก์
           </button>
-          <button
-            type="button"
-            className="btn btn--sm"
-            onClick={(e) => setMenu({ kind: "move", anchor: { x: e.clientX - 100, y: e.clientY - 12 }, ids: selectedImages.map((i) => i.id) })}
-          >
-            <FolderInput size={13} /> ย้ายไป
-          </button>
-          <button
-            type="button"
-            className="btn btn--sm"
-            onClick={(e) => setMenu({ kind: "bulk", anchor: { x: e.clientX - 100, y: e.clientY - 12 } })}
-          >
-            เพิ่มเติม
-          </button>
-          <button type="button" className="btn btn--sm btn--danger" onClick={() => askDelete(selectedImages)}>
-            <Trash2 size={13} />
-          </button>
+          {inTrash ? (
+            <>
+              <button type="button" className="btn btn--sm" onClick={() => void doRestore(selectedImages.map((i) => i.id))}>
+                <Undo2 size={13} /> กู้คืน
+              </button>
+              <button type="button" className="btn btn--sm btn--danger" onClick={() => askPurge(selectedImages)}>
+                <Trash2 size={13} /> ลบถาวร
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="btn btn--sm"
+                onClick={(e) => setMenu({ kind: "move", anchor: { x: e.clientX - 100, y: e.clientY - 12 }, ids: selectedImages.map((i) => i.id) })}
+              >
+                <FolderInput size={13} /> ย้ายไป
+              </button>
+              <button
+                type="button"
+                className="btn btn--sm"
+                onClick={(e) => setMenu({ kind: "bulk", anchor: { x: e.clientX - 100, y: e.clientY - 12 } })}
+              >
+                เพิ่มเติม
+              </button>
+              <button type="button" className="btn btn--sm btn--danger" onClick={() => askDelete(selectedImages)} title="ย้ายไปถังขยะ">
+                <Trash2 size={13} />
+              </button>
+            </>
+          )}
           <button type="button" className="iconbtn" onClick={() => setSelected(new Set())} aria-label="ยกเลิกการเลือก">
             <X size={15} />
           </button>
@@ -738,7 +877,23 @@ export default function VaultApp({ initialData, storage }: Props) {
 
           <div className="menu-sep" />
 
-          {menuTargets.length === 1 && (
+          {inTrash && (
+            <>
+              <MenuItem
+                icon={<Undo2 size={14} />}
+                label={menuTargets.length > 1 ? `กู้คืน ${menuTargets.length} รูป` : "กู้คืนรูปนี้"}
+                onClick={() => { const ids = menuTargets.map((i) => i.id); closeMenu(); void doRestore(ids); }}
+              />
+              <MenuItem
+                icon={<Trash2 size={14} />}
+                label={menuTargets.length > 1 ? `ลบถาวร ${menuTargets.length} รูป` : "ลบถาวร"}
+                danger
+                onClick={() => { const targets = menuTargets; closeMenu(); askPurge(targets); }}
+              />
+            </>
+          )}
+
+          {!inTrash && menuTargets.length === 1 && (
             <>
               <MenuItem
                 icon={<ExternalLink size={14} />}
@@ -753,24 +908,28 @@ export default function VaultApp({ initialData, storage }: Props) {
             </>
           )}
 
-          <MenuItem
-            icon={<FolderInput size={14} />}
-            label="ย้ายไปคอลเลกชัน…"
-            onClick={() => {
-              const ids = menuTargets.map((i) => i.id);
-              const anchor = menu.anchor;
-              setMenu({ kind: "move", anchor, ids });
-            }}
-          />
+          {!inTrash && (
+            <>
+              <MenuItem
+                icon={<FolderInput size={14} />}
+                label="ย้ายไปคอลเลกชัน…"
+                onClick={() => {
+                  const ids = menuTargets.map((i) => i.id);
+                  const anchor = menu.anchor;
+                  setMenu({ kind: "move", anchor, ids });
+                }}
+              />
 
-          <div className="menu-sep" />
+              <div className="menu-sep" />
 
-          <MenuItem
-            icon={<Trash2 size={14} />}
-            label={menuTargets.length > 1 ? `ลบ ${menuTargets.length} รูป` : "ลบรูปนี้"}
-            danger
-            onClick={() => { const targets = menuTargets; closeMenu(); askDelete(targets); }}
-          />
+              <MenuItem
+                icon={<Trash2 size={14} />}
+                label={menuTargets.length > 1 ? `ย้าย ${menuTargets.length} รูปไปถังขยะ` : "ย้ายไปถังขยะ"}
+                danger
+                onClick={() => { const targets = menuTargets; closeMenu(); askDelete(targets); }}
+              />
+            </>
+          )}
         </Menu>
       )}
 
@@ -786,7 +945,7 @@ export default function VaultApp({ initialData, storage }: Props) {
           canResize={storage.canResize}
           onCopy={(format, width) => void copyOne(viewerImage, format, width)}
           onRename={() => askRename(viewerImage)}
-          onDelete={() => askDelete([viewerImage])}
+          onDelete={() => (inTrash ? askPurge([viewerImage]) : askDelete([viewerImage]))}
           onPickAlbum={(e) => setMenu({ kind: "move", anchor: { x: e.clientX - 120, y: e.clientY + 10 }, ids: [viewerImage.id] })}
         />
       )}

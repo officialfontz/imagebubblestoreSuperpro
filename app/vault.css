@@ -541,3 +541,13 @@
 
 .signout { margin-top: 8px; font-size: 12.5px; color: var(--ink-3); }
 .signout:hover { color: var(--ink); }
+
+/* ── Inline note ─────────────────────────────────────────────────────────── */
+.v-note {
+  display: flex; align-items: center; gap: 9px;
+  padding: 10px 13px; margin-bottom: 16px;
+  border-radius: 10px; font-size: 12.5px; line-height: 1.55;
+  background: var(--surface); color: var(--ink-2);
+}
+.v-note svg { flex: none; color: var(--violet); }
+.v-note b { color: var(--ink); font-weight: 600; }

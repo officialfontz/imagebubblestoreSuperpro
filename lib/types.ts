@@ -34,6 +34,14 @@ export type VaultImage = {
   /** Original filename, set only by scripts/import-images.mjs. Persisted so a
    *  re-run of the import can skip what it already brought in. */
   importedFrom?: string;
+  /**
+   * When set, the image is in the trash: hidden from every normal view but not
+   * yet destroyed. The R2 object is untouched, so the public link keeps working
+   * and a restore returns the image with the same URL it always had — which is
+   * the whole point, since those links are embedded on other people's pages.
+   * Emptying the trash is what actually deletes the bytes.
+   */
+  deletedAt?: number;
 };
 
 export type VaultData = {

@@ -197,27 +197,80 @@ export async function uploadToVault(formData: FormData): Promise<ActionResult<{ 
 
 // ── Images ────────────────────────────────────────────────────────────────────
 
+/**
+ * Moves images to the trash. Nothing is destroyed: the R2 objects stay put, so
+ * a link already embedded on another site keeps working and a restore brings
+ * the image back under the URL it always had. `purgeVaultImages` is what
+ * actually deletes bytes.
+ */
 export async function deleteVaultImages(ids: string[]): Promise<ActionResult<{ deleted: number }>> {
   await requireAuth();
   if (!Array.isArray(ids) || ids.length === 0) return { ok: false, error: "ไม่ได้เลือกรูป" };
 
-  const vault = await loadVault();
-  const targets = vault.images.filter((i) => ids.includes(i.id));
-
-  // Remove the objects first. If the bucket delete fails we still drop the
-  // metadata — an orphaned object costs storage, a dangling row breaks the UI.
-  await Promise.all(targets.map((i) => deleteObject(i.key).catch((e) => {
-    console.error("vault deleteObject failed:", i.key, e);
-  })));
-
   const idSet = new Set(ids);
+  const now = Date.now();
   const res = await updateVault<{ deleted: number }>((data) => {
-    const before = data.images.length;
-    data.images = data.images.filter((i) => !idSet.has(i.id));
-    return { next: data, result: { deleted: before - data.images.length } };
+    let deleted = 0;
+    for (const img of data.images) {
+      if (idSet.has(img.id) && !img.deletedAt) {
+        img.deletedAt = now;
+        deleted++;
+      }
+    }
+    return { next: data, result: { deleted } };
   });
   if ("error" in res) return { ok: false, error: res.error };
   return { ok: true, deleted: res.deleted };
+}
+
+/** Takes images back out of the trash. */
+export async function restoreVaultImages(ids: string[]): Promise<ActionResult<{ restored: number }>> {
+  await requireAuth();
+  if (!Array.isArray(ids) || ids.length === 0) return { ok: false, error: "ไม่ได้เลือกรูป" };
+
+  const idSet = new Set(ids);
+  const res = await updateVault<{ restored: number }>((data) => {
+    let restored = 0;
+    for (const img of data.images) {
+      if (idSet.has(img.id) && img.deletedAt) {
+        delete img.deletedAt;
+        restored++;
+      }
+    }
+    return { next: data, result: { restored } };
+  });
+  if ("error" in res) return { ok: false, error: res.error };
+  return { ok: true, restored: res.restored };
+}
+
+/**
+ * Permanently deletes the bytes. Only ever applied to images already in the
+ * trash, so a single mis-click can never destroy anything.
+ */
+export async function purgeVaultImages(ids: string[]): Promise<ActionResult<{ purged: number }>> {
+  await requireAuth();
+  if (!Array.isArray(ids) || ids.length === 0) return { ok: false, error: "ไม่ได้เลือกรูป" };
+
+  const vault = await loadVault();
+  const idSet = new Set(ids);
+  // Refuse anything not already binned — purge is not a shortcut past delete.
+  const targets = vault.images.filter((i) => idSet.has(i.id) && i.deletedAt);
+  if (targets.length === 0) return { ok: false, error: "ไม่มีรูปในถังขยะที่ตรงกับที่เลือก" };
+
+  await Promise.all(targets.map((i) => deleteObject(i.key).catch((e) => {
+    // An orphaned object costs a little storage; a dangling row breaks the UI.
+    // Dropping the metadata anyway is the lesser evil.
+    console.error("vault deleteObject failed:", i.key, e);
+  })));
+
+  const purgeIds = new Set(targets.map((i) => i.id));
+  const res = await updateVault<{ purged: number }>((data) => {
+    const before = data.images.length;
+    data.images = data.images.filter((i) => !purgeIds.has(i.id));
+    return { next: data, result: { purged: before - data.images.length } };
+  });
+  if ("error" in res) return { ok: false, error: res.error };
+  return { ok: true, purged: res.purged };
 }
 
 export async function renameVaultImage(id: string, name: string): Promise<ActionResult> {

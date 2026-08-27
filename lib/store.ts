@@ -71,6 +71,7 @@ function normalizeImage(raw: unknown): VaultImage | null {
     createdAt: num(raw.createdAt, 0),
     ...(typeof raw.blur === "string" && raw.blur ? { blur: raw.blur } : {}),
     ...(typeof raw.importedFrom === "string" && raw.importedFrom ? { importedFrom: raw.importedFrom } : {}),
+    ...(typeof raw.deletedAt === "number" && raw.deletedAt > 0 ? { deletedAt: raw.deletedAt } : {}),
   };
 }
 

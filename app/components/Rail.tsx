@@ -4,7 +4,7 @@
 
 import { useState } from "react";
 import {
-  Upload, Images, Inbox, Plus, Pencil, HardDrive, Cloud, Layers, LogOut,
+  Upload, Images, Inbox, Plus, Pencil, HardDrive, Cloud, Layers, LogOut, Trash2,
 } from "lucide-react";
 import type { VaultAlbum } from "@/lib/types";
 import { signOut } from "@/lib/login-actions";
@@ -12,11 +12,12 @@ import { formatBytes } from "./ui";
 
 export const ALL = "__all__";
 export const UNFILED = "__unfiled__";
+export const TRASH = "__trash__";
 
 type Props = {
   albums: VaultAlbum[];
   active: string;
-  counts: { all: number; unfiled: number; byAlbum: Map<string, number> };
+  counts: { all: number; unfiled: number; trash: number; byAlbum: Map<string, number> };
   totalBytes: number;
   storage: { driver: string; publicBase: string; missing: string[] };
   onSelect: (id: string) => void;
@@ -90,6 +91,19 @@ export default function Rail({
           <span className="nav-name">ยังไม่จัดหมวด</span>
           <span className="nav-count tnum">{counts.unfiled}</span>
         </button>
+
+        {counts.trash > 0 && (
+          <button
+            type="button"
+            className="nav-item"
+            data-active={active === TRASH}
+            onClick={() => onSelect(TRASH)}
+          >
+            <span className="nav-icon"><Trash2 size={16} /></span>
+            <span className="nav-name">ถังขยะ</span>
+            <span className="nav-count tnum">{counts.trash}</span>
+          </button>
+        )}
 
         <div className="nav-label">
           คอลเลกชัน
