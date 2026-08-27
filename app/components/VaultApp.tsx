@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Upload, Search, X, Copy, Trash2, Pencil, FolderInput, ExternalLink,
-  ArrowUpDown, LayoutGrid, Grid2x2, Check, ImageOff, Sparkles, Inbox, Shrink, Undo2,
+  ArrowUpDown, LayoutGrid, Grid2x2, Check, ImageOff, Sparkles, Inbox, Shrink, Undo2, Plus,
 } from "lucide-react";
 import type { VaultData, VaultImage, VaultAlbum, CopyFormat } from "@/lib/types";
 import { formatLink, resizedUrl, RESIZE_WIDTHS } from "@/lib/types";
@@ -369,6 +369,11 @@ export default function VaultApp({ initialData, storage }: Props) {
     say(`ย้าย ${ids.length} รูป → ${name}`);
   }, [images, albums, say, guard]);
 
+  // doCreateAlbum needs doMove, which is declared above it; going through a ref
+  // keeps that call current without adding doMove to every dependency list.
+  const doMoveRef = useRef(doMove);
+  doMoveRef.current = doMove;
+
   const doRename = useCallback(async (id: string, name: string) => {
     const snapshot = images;
     setImages((prev) => prev.map((i) => (i.id === id ? { ...i, name } : i)));
@@ -376,12 +381,15 @@ export default function VaultApp({ initialData, storage }: Props) {
     if (res && !res.ok) { setImages(snapshot); say(res.error, "error"); }
   }, [images, say, guard]);
 
-  const doCreateAlbum = useCallback(async (name: string, emoji: string) => {
+  /** `moveIds` covers "move to a new collection": create it, then put them in.
+   *  Without this the create path silently dropped the pending move. */
+  const doCreateAlbum = useCallback(async (name: string, emoji: string, moveIds?: string[]) => {
     const res = await guard(() => createVaultAlbum(name, emoji), () => {});
     if (!res) return;
     if (!res.ok) { say(res.error, "error"); return; }
     setAlbums((prev) => [...prev, res.album]);
     setActive(res.album.id);
+    if (moveIds?.length) await doMoveRef.current(moveIds, res.album.id);
   }, [say, guard]);
 
   const doUpdateAlbum = useCallback(async (id: string, name: string, emoji: string) => {
@@ -464,14 +472,14 @@ export default function VaultApp({ initialData, storage }: Props) {
     });
   }, [doRename]);
 
-  const askNewAlbum = useCallback(() => {
+  const askNewAlbum = useCallback((moveIds?: string[]) => {
     setPrompt({
-      title: "สร้างคอลเลกชันใหม่",
+      title: moveIds?.length ? `สร้างคอลเลกชันแล้วย้าย ${moveIds.length} รูปเข้าไป` : "สร้างคอลเลกชันใหม่",
       value: "",
       emoji: "📁",
       placeholder: "เช่น แบนเนอร์โปรโมท",
       confirm: "สร้าง",
-      onConfirm: (name, emoji) => void doCreateAlbum(name, emoji),
+      onConfirm: (name, emoji) => void doCreateAlbum(name, emoji, moveIds),
     });
   }, [doCreateAlbum]);
 
@@ -830,9 +838,12 @@ export default function VaultApp({ initialData, storage }: Props) {
               onClick={() => { const ids = menu.ids; closeMenu(); void doMove(ids, a.id); }}
             />
           ))}
-          {albums.length === 0 && (
-            <MenuItem icon={<FolderInput size={14} />} label="สร้างคอลเลกชันใหม่…" onClick={() => { closeMenu(); askNewAlbum(); }} />
-          )}
+          {albums.length > 0 && <div className="menu-sep" />}
+          <MenuItem
+            icon={<Plus size={14} />}
+            label="สร้างคอลเลกชันใหม่…"
+            onClick={() => { const ids = menu.ids; closeMenu(); askNewAlbum(ids); }}
+          />
         </Menu>
       )}
 
