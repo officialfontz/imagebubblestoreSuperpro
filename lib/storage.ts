@@ -45,15 +45,35 @@ export function getDriver(): StorageDriver {
   return readR2Config() ? "r2" : "local";
 }
 
-/** Human-readable status for the vault's settings panel. */
-export function storageStatus(): { driver: StorageDriver; publicBase: string; missing: string[] } {
+export type StorageStatus = {
+  driver: StorageDriver;
+  publicBase: string;
+  missing: string[];
+  /** True when links can go through Cloudflare's /cdn-cgi/image resizer. */
+  canResize: boolean;
+};
+
+/** Human-readable status for the vault's storage card and copy menu. */
+export function storageStatus(): StorageStatus {
   const required = ["R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET", "R2_PUBLIC_BASE"];
   const missing  = required.filter((k) => !process.env[k]?.trim());
   const cfg      = readR2Config();
+  // The free *.r2.dev hostname is served straight from R2 and never touches the
+  // Cloudflare image pipeline, so offering resize links there would hand the
+  // user URLs that 404.
+  let canResize = false;
+  if (cfg) {
+    try {
+      canResize = !/\.r2\.dev$/i.test(new URL(cfg.publicBase).hostname);
+    } catch {
+      canResize = false; // malformed R2_PUBLIC_BASE — assume no edge resizer
+    }
+  }
   return {
     driver: cfg ? "r2" : "local",
     publicBase: cfg?.publicBase ?? "/uploads",
     missing,
+    canResize,
   };
 }
 

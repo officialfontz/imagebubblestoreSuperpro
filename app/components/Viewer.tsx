@@ -8,7 +8,7 @@ import {
   X, ChevronLeft, ChevronRight, Copy, Pencil, Trash2, ExternalLink, FolderInput, Check,
 } from "lucide-react";
 import type { VaultImage, VaultAlbum, CopyFormat } from "@/lib/types";
-import { formatLink } from "@/lib/types";
+import { formatLink, resizedUrl, RESIZE_WIDTHS } from "@/lib/types";
 import { formatBytes, timeAgo } from "./ui";
 
 const LINKS: { format: CopyFormat; kind: string }[] = [
@@ -26,14 +26,16 @@ type Props = {
   onPrev: () => void;
   onNext: () => void;
   onClose: () => void;
-  onCopy: (format: CopyFormat) => void;
+  onCopy: (format: CopyFormat, width?: number) => void;
+  /** Cloudflare edge resizing is available for this bucket. */
+  canResize: boolean;
   onRename: () => void;
   onDelete: () => void;
   onPickAlbum: (e: React.MouseEvent) => void;
 };
 
 export default function Viewer({
-  image, albums, hasPrev, hasNext, onPrev, onNext, onClose, onCopy, onRename, onDelete, onPickAlbum,
+  image, albums, hasPrev, hasNext, onPrev, onNext, onClose, onCopy, onRename, onDelete, onPickAlbum, canResize,
 }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -93,6 +95,30 @@ export default function Viewer({
               </button>
             ))}
           </div>
+
+          {canResize && (
+            <div className="sect">
+              <span className="sect-label">ลิงก์ย่อขนาด</span>
+              {/* One stored original, any width on request — Cloudflare resizes
+                  and re-encodes at the edge, so a thumbnail slot never has to
+                  download the full-size file. */}
+              {RESIZE_WIDTHS.map((w) => (
+                <button
+                  type="button"
+                  className="linkrow"
+                  key={w}
+                  onClick={() => onCopy("direct", w)}
+                  title={resizedUrl(image.url, w)}
+                >
+                  <span className="linkrow-body">
+                    <span className="linkrow-kind">กว้าง {w}px · AVIF/WebP อัตโนมัติ</span>
+                    <span className="linkrow-val mono">{resizedUrl(image.url, w)}</span>
+                  </span>
+                  <Copy size={14} color="var(--ink-3)" />
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="sect">
             <span className="sect-label">รายละเอียด</span>

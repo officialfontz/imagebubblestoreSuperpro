@@ -17,10 +17,13 @@ type Props = {
   onDragStart: () => void;
   onDragEnd: () => void;
   dragging: boolean;
+  /** Off while the grid is virtualised — tiles re-mount as you scroll, and
+   *  replaying the entrance animation each time reads as flicker. */
+  animate: boolean;
 };
 
 export default function Tile({
-  image, selected, index, onCopy, onToggle, onOpen, onMenu, onDragStart, onDragEnd, dragging,
+  image, selected, index, onCopy, onToggle, onOpen, onMenu, onDragStart, onDragEnd, dragging, animate,
 }: Props) {
   return (
     <figure
@@ -29,7 +32,7 @@ export default function Tile({
       data-dragging={dragging}
       // Staggered entrance, capped so a 300-image album does not spend nine
       // seconds animating in.
-      style={{ animationDelay: `${Math.min(index, 14) * 22}ms` }}
+      style={animate ? { animationDelay: `${Math.min(index, 14) * 22}ms` } : { animation: "none" }}
       draggable
       onDragStart={(e) => {
         e.dataTransfer.effectAllowed = "move";

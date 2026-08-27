@@ -70,6 +70,7 @@ function normalizeImage(raw: unknown): VaultImage | null {
     mime: str(raw.mime, "image/webp"),
     createdAt: num(raw.createdAt, 0),
     ...(typeof raw.blur === "string" && raw.blur ? { blur: raw.blur } : {}),
+    ...(typeof raw.importedFrom === "string" && raw.importedFrom ? { importedFrom: raw.importedFrom } : {}),
   };
 }
 

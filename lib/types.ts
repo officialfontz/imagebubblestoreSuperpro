@@ -31,6 +31,9 @@ export type VaultImage = {
   createdAt: number;
   /** Tiny base64 preview (~200 bytes) rendered while the real image loads. */
   blur?: string;
+  /** Original filename, set only by scripts/import-images.mjs. Persisted so a
+   *  re-run of the import can skip what it already brought in. */
+  importedFrom?: string;
 };
 
 export type VaultData = {
@@ -40,6 +43,31 @@ export type VaultData = {
 };
 
 export const emptyVault = (): VaultData => ({ version: 1, albums: [], images: [] });
+
+/**
+ * Rewrites a public image URL to go through Cloudflare Image Resizing, which
+ * resizes and re-encodes on the fly at the edge. One stored original therefore
+ * serves every size the site needs — upload once at full detail, request the
+ * width the slot actually wants.
+ *
+ * `format=auto` sends AVIF to browsers that take it (~20-30% smaller than the
+ * stored WebP) and falls back on its own.
+ *
+ * Only works on a bucket fronted by a Cloudflare custom domain — the free
+ * *.r2.dev hostname does not run the /cdn-cgi pipeline.
+ */
+export function resizedUrl(url: string, width: number, quality = 85): string {
+  try {
+    const u = new URL(url);
+    return `${u.origin}/cdn-cgi/image/width=${width},quality=${quality},format=auto${u.pathname}`;
+  } catch {
+    // Relative URL (local-disk driver) — there is no edge to resize at.
+    return url;
+  }
+}
+
+/** Widths offered in the copy menu. */
+export const RESIZE_WIDTHS = [400, 800, 1600] as const;
 
 /** Link formats offered by the copy menu. */
 export type CopyFormat = "direct" | "markdown" | "html" | "bbcode";

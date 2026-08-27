@@ -7,10 +7,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Upload, Search, X, Copy, Trash2, Pencil, FolderInput, ExternalLink,
-  ArrowUpDown, LayoutGrid, Grid2x2, Check, ImageOff, Sparkles, Inbox,
+  ArrowUpDown, LayoutGrid, Grid2x2, Check, ImageOff, Sparkles, Inbox, Shrink,
 } from "lucide-react";
 import type { VaultData, VaultImage, VaultAlbum, CopyFormat } from "@/lib/types";
-import { formatLink } from "@/lib/types";
+import { formatLink, resizedUrl, RESIZE_WIDTHS } from "@/lib/types";
+import type { StorageStatus } from "@/lib/storage";
 import {
   uploadToVault, deleteVaultImages, renameVaultImage, moveVaultImages,
   createVaultAlbum, updateVaultAlbum, deleteVaultAlbum,
@@ -19,6 +20,7 @@ import Rail, { ALL, UNFILED } from "./Rail";
 import Tile from "./Tile";
 import Viewer from "./Viewer";
 import Tray, { type UploadJob } from "./Tray";
+import { useVirtualGrid } from "./useVirtualGrid";
 import {
   Menu, MenuItem, PromptModal, ConfirmModal, ToastStack, copyText,
   type Toast, type PromptSpec, type ConfirmSpec, type MenuAnchor,
@@ -26,7 +28,7 @@ import {
 
 type Props = {
   initialData: VaultData;
-  storage: { driver: string; publicBase: string; missing: string[] };
+  storage: StorageStatus;
 };
 
 type Sort = "new" | "old" | "name" | "size";
@@ -74,6 +76,8 @@ export default function VaultApp({ initialData, storage }: Props) {
   const [menu, setMenu] = useState<MenuState | null>(null);
 
   const fileInput = useRef<HTMLInputElement>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
   const toastId = useRef(0);
   const dragDepth = useRef(0);
 
@@ -100,6 +104,20 @@ export default function VaultApp({ initialData, storage }: Props) {
     if (sort === "name") sorted.sort((a, b) => a.name.localeCompare(b.name, "th"));
     return sorted;
   }, [images, active, query, sort]);
+
+  // Only the rows near the viewport are mounted; the rest is empty padding.
+  const win = useVirtualGrid({
+    scrollRef: canvasRef,
+    gridRef,
+    count: visible.length,
+    resetKey: dense,
+  });
+
+  // Changing what is on screen should start at the top — otherwise you land
+  // halfway down a list you have never seen.
+  const resetScroll = useCallback(() => {
+    canvasRef.current?.scrollTo({ top: 0 });
+  }, []);
 
   const counts = useMemo(() => {
     const byAlbum = new Map<string, number>();
@@ -229,16 +247,26 @@ export default function VaultApp({ initialData, storage }: Props) {
   }, [runUploads]);
 
   // ── Copy ────────────────────────────────────────────────────────────────────
-  const copyOne = useCallback(async (img: VaultImage, format: CopyFormat = "direct") => {
-    const ok = await copyText(formatLink(format, img.url, img.name));
-    say(ok ? "คัดลอกลิงก์แล้ว" : "คัดลอกไม่สำเร็จ", ok ? "ok" : "error");
-  }, [say]);
+  /** `width` routes the URL through Cloudflare's edge resizer; omit for the original. */
+  const linkFor = useCallback(
+    (img: VaultImage, format: CopyFormat, width?: number) =>
+      formatLink(format, width ? resizedUrl(img.url, width) : img.url, img.name),
+    [],
+  );
 
-  const copyMany = useCallback(async (list: VaultImage[], format: CopyFormat) => {
+  const copyOne = useCallback(async (img: VaultImage, format: CopyFormat = "direct", width?: number) => {
+    const ok = await copyText(linkFor(img, format, width));
+    say(
+      ok ? (width ? `คัดลอกลิงก์ ${width}px แล้ว` : "คัดลอกลิงก์แล้ว") : "คัดลอกไม่สำเร็จ",
+      ok ? "ok" : "error",
+    );
+  }, [say, linkFor]);
+
+  const copyMany = useCallback(async (list: VaultImage[], format: CopyFormat, width?: number) => {
     if (list.length === 0) return;
-    const ok = await copyText(list.map((i) => formatLink(format, i.url, i.name)).join("\n"));
+    const ok = await copyText(list.map((i) => linkFor(i, format, width)).join("\n"));
     say(ok ? `คัดลอก ${list.length} ลิงก์แล้ว` : "คัดลอกไม่สำเร็จ", ok ? "ok" : "error");
-  }, [say]);
+  }, [say, linkFor]);
 
   // ── Mutations (optimistic, rolled back on failure) ──────────────────────────
   // Server actions throw on an expired session (and Next masks the reason in
@@ -427,7 +455,7 @@ export default function VaultApp({ initialData, storage }: Props) {
         counts={counts}
         totalBytes={totalBytes}
         storage={storage}
-        onSelect={(id) => { setActive(id); setSelected(new Set()); }}
+        onSelect={(id) => { setActive(id); setSelected(new Set()); resetScroll(); }}
         onUpload={() => fileInput.current?.click()}
         onNewAlbum={askNewAlbum}
         onEditAlbum={(album, e) => setMenu({ kind: "album", anchor: { x: e.clientX, y: e.clientY + 8 }, album })}
@@ -452,7 +480,7 @@ export default function VaultApp({ initialData, storage }: Props) {
             <Search size={15} color="var(--ink-4)" />
             <input
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => { setQuery(e.target.value); resetScroll(); }}
               placeholder="ค้นหาชื่อรูป…"
               aria-label="ค้นหารูป"
             />
@@ -489,6 +517,7 @@ export default function VaultApp({ initialData, storage }: Props) {
         </header>
 
         <div
+          ref={canvasRef}
           className="canvas"
           style={dense
             ? ({ "--tile": "132px", "--gap": "11px" } as React.CSSProperties)
@@ -507,35 +536,47 @@ export default function VaultApp({ initialData, storage }: Props) {
               </p>
             </div>
           ) : (
-            <div className="grid">
-              {/* Skeletons stand in for files still encoding, so the grid never
-                  looks empty while a big batch is uploading. */}
-              {Array.from({ length: pendingCount }, (_, i) => (
-                <figure className="tile tile--ghost" key={`ghost-${i}`}>
-                  <div className="tile-img" />
-                  <div className="tile-meta">
-                    <div className="tile-name" style={{ color: "var(--ink-4)" }}>กำลังอัปโหลด…</div>
-                    <div className="tile-sub">&nbsp;</div>
-                  </div>
-                </figure>
-              ))}
+            <>
+              {/* Skeletons for files still encoding, so the grid never looks
+                  empty mid-batch. They sit in their own grid so they cannot
+                  shift the row arithmetic the virtualiser depends on. */}
+              {pendingCount > 0 && (
+                <div className="grid" style={{ marginBottom: "var(--gap, 16px)" }}>
+                  {Array.from({ length: pendingCount }, (_, i) => (
+                    <figure className="tile tile--ghost" key={`ghost-${i}`}>
+                      <div className="tile-img" />
+                      <div className="tile-meta">
+                        <div className="tile-name" style={{ color: "var(--ink-4)" }}>กำลังอัปโหลด…</div>
+                        <div className="tile-sub">&nbsp;</div>
+                      </div>
+                    </figure>
+                  ))}
+                </div>
+              )}
 
-              {visible.map((img, i) => (
-                <Tile
-                  key={img.id}
-                  image={img}
-                  index={i}
-                  selected={selected.has(img.id)}
-                  dragging={dragTiles?.includes(img.id) ?? false}
-                  onCopy={() => void copyOne(img)}
-                  onToggle={() => toggle(img.id)}
-                  onOpen={() => setViewerId(img.id)}
-                  onMenu={(e) => openTileMenu(e, img)}
-                  onDragStart={() => setDragTiles(selected.has(img.id) ? [...selected] : [img.id])}
-                  onDragEnd={() => setDragTiles(null)}
-                />
-              ))}
-            </div>
+              <div
+                ref={gridRef}
+                className="grid"
+                style={win.active ? { paddingTop: win.padTop, paddingBottom: win.padBottom } : undefined}
+              >
+                {visible.slice(win.start, win.end).map((img, i) => (
+                  <Tile
+                    key={img.id}
+                    image={img}
+                    index={win.start + i}
+                    animate={!win.active}
+                    selected={selected.has(img.id)}
+                    dragging={dragTiles?.includes(img.id) ?? false}
+                    onCopy={() => void copyOne(img)}
+                    onToggle={() => toggle(img.id)}
+                    onOpen={() => setViewerId(img.id)}
+                    onMenu={(e) => openTileMenu(e, img)}
+                    onDragStart={() => setDragTiles(selected.has(img.id) ? [...selected] : [img.id])}
+                    onDragEnd={() => setDragTiles(null)}
+                  />
+                ))}
+              </div>
+            </>
           )}
         </div>
       </div>
@@ -628,7 +669,7 @@ export default function VaultApp({ initialData, storage }: Props) {
               key={s.key}
               icon={sort === s.key ? <Check size={14} color="var(--violet-hi)" /> : null}
               label={s.label}
-              onClick={() => { setSort(s.key); closeMenu(); }}
+              onClick={() => { setSort(s.key); closeMenu(); resetScroll(); }}
             />
           ))}
         </Menu>
@@ -673,6 +714,27 @@ export default function VaultApp({ initialData, storage }: Props) {
               }}
             />
           ))}
+
+          {storage.canResize && (
+            <>
+              <div className="menu-sep" />
+              <div className="menu-label">ลิงก์ย่อขนาด (ย่อที่ CDN)</div>
+              {RESIZE_WIDTHS.map((w) => (
+                <MenuItem
+                  key={w}
+                  icon={<Shrink size={14} />}
+                  label={`กว้าง ${w}px`}
+                  onClick={() => {
+                    const targets = menuTargets;
+                    closeMenu();
+                    void (targets.length > 1
+                      ? copyMany(targets, "direct", w)
+                      : copyOne(targets[0], "direct", w));
+                  }}
+                />
+              ))}
+            </>
+          )}
 
           <div className="menu-sep" />
 
@@ -721,7 +783,8 @@ export default function VaultApp({ initialData, storage }: Props) {
           onPrev={() => setViewerId(visible[viewerIndex - 1].id)}
           onNext={() => setViewerId(visible[viewerIndex + 1].id)}
           onClose={() => setViewerId(null)}
-          onCopy={(format) => void copyOne(viewerImage, format)}
+          canResize={storage.canResize}
+          onCopy={(format, width) => void copyOne(viewerImage, format, width)}
           onRename={() => askRename(viewerImage)}
           onDelete={() => askDelete([viewerImage])}
           onPickAlbum={(e) => setMenu({ kind: "move", anchor: { x: e.clientX - 120, y: e.clientY + 10 }, ids: [viewerImage.id] })}
