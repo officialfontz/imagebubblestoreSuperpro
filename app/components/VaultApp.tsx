@@ -8,24 +8,26 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Upload, Search, X, Copy, Trash2, Pencil, FolderInput, ExternalLink,
   ArrowUpDown, LayoutGrid, Grid2x2, Check, ImageOff, Sparkles, Inbox, Shrink, Undo2, Plus,
+  ImageDown, Minimize2,
 } from "lucide-react";
 import type { VaultData, VaultImage, VaultAlbum, CopyFormat } from "@/lib/types";
 import { formatLink, resizedUrl, RESIZE_WIDTHS } from "@/lib/types";
 import type { StorageStatus } from "@/lib/storage";
 import {
   uploadToVault, deleteVaultImages, restoreVaultImages, purgeVaultImages,
-  renameVaultImage, moveVaultImages,
+  renameVaultImage, moveVaultImages, applyResize,
   createVaultAlbum, updateVaultAlbum, deleteVaultAlbum,
 } from "@/lib/actions";
 import Rail, { ALL, UNFILED, TRASH, TEXT_TOOL } from "./Rail";
 import TextTool from "./TextTool";
+import ResizeDialog from "./ResizeDialog";
 import Tile from "./Tile";
 import Viewer from "./Viewer";
 import Tray, { type UploadJob } from "./Tray";
 import { useVirtualGrid } from "./useVirtualGrid";
 import { useMarqueeSelect } from "./useMarqueeSelect";
 import {
-  Menu, MenuItem, PromptModal, ConfirmModal, ToastStack, copyText,
+  Menu, MenuItem, PromptModal, ConfirmModal, ToastStack, copyText, formatBytes,
   type Toast, type PromptSpec, type ConfirmSpec, type MenuAnchor,
 } from "./ui";
 
@@ -77,6 +79,7 @@ export default function VaultApp({ initialData, storage }: Props) {
   const [prompt, setPrompt] = useState<PromptSpec | null>(null);
   const [confirm, setConfirm] = useState<ConfirmSpec | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const [resizing, setResizing] = useState<VaultImage | null>(null);
 
   const fileInput = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -298,6 +301,33 @@ export default function VaultApp({ initialData, storage }: Props) {
     );
   }, [say, linkFor]);
 
+  /**
+   * Puts the picture on the clipboard, not its address — for pasting straight
+   * into a chat or a document. The ClipboardItem is handed a *promise* rather
+   * than an awaited blob on purpose: Safari drops the user-activation the
+   * moment you await before constructing it, and the write is then refused.
+   */
+  const copyImage = useCallback(async (img: VaultImage) => {
+    if (typeof ClipboardItem === "undefined" || !navigator.clipboard?.write) {
+      say("เบราว์เซอร์นี้คัดลอกรูปไม่ได้ — ใช้คัดลอกลิงก์แทน", "error");
+      return;
+    }
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "image/png": fetch(`/api/png/${img.id}`).then((r) => {
+            if (!r.ok) throw new Error(String(r.status));
+            return r.blob();
+          }),
+        }),
+      ]);
+      say("คัดลอกรูปแล้ว — วางในแชทหรือเอกสารได้เลย");
+    } catch (e) {
+      console.error("copy image failed:", e);
+      say("คัดลอกรูปไม่สำเร็จ", "error");
+    }
+  }, [say]);
+
   const copyMany = useCallback(async (list: VaultImage[], format: CopyFormat, width?: number) => {
     if (list.length === 0) return;
     const ok = await copyText(list.map((i) => linkFor(i, format, width)).join("\n"));
@@ -388,6 +418,16 @@ export default function VaultApp({ initialData, storage }: Props) {
 
   /** `moveIds` covers "move to a new collection": create it, then put them in.
    *  Without this the create path silently dropped the pending move. */
+  const doResize = useCallback(async (id: string, width: number) => {
+    const before = images.find((i) => i.id === id);
+    const res = await guard(() => applyResize(id, width), () => {});
+    if (!res) return;
+    if (!res.ok) { say(res.error, "error"); return; }
+    setImages((prev) => prev.map((i) => (i.id === id ? res.image : i)));
+    const saved = before ? before.bytes - res.image.bytes : 0;
+    say(`ย่อแล้ว — เล็กลง ${formatBytes(Math.max(0, saved))}`);
+  }, [images, say, guard]);
+
   const doCreateAlbum = useCallback(async (name: string, emoji: string, moveIds?: string[]) => {
     const res = await guard(() => createVaultAlbum(name, emoji), () => {});
     if (!res) return;
@@ -922,6 +962,19 @@ export default function VaultApp({ initialData, storage }: Props) {
           {!inTrash && menuTargets.length === 1 && (
             <>
               <MenuItem
+                icon={<ImageDown size={14} />}
+                label="คัดลอกรูปภาพ"
+                onClick={() => { const target = menuTargets[0]; closeMenu(); void copyImage(target); }}
+              />
+              <MenuItem
+                icon={<Minimize2 size={14} />}
+                label="ย่อขนาดรูป…"
+                onClick={() => { const target = menuTargets[0]; closeMenu(); setResizing(target); }}
+              />
+
+              <div className="menu-sep" />
+
+              <MenuItem
                 icon={<ExternalLink size={14} />}
                 label="เปิดในแท็บใหม่"
                 onClick={() => { const url = menuTargets[0].url; closeMenu(); window.open(url, "_blank", "noopener,noreferrer"); }}
@@ -973,6 +1026,14 @@ export default function VaultApp({ initialData, storage }: Props) {
           onRename={() => askRename(viewerImage)}
           onDelete={() => (inTrash ? askPurge([viewerImage]) : askDelete([viewerImage]))}
           onPickAlbum={(e) => setMenu({ kind: "move", anchor: { x: e.clientX - 120, y: e.clientY + 10 }, ids: [viewerImage.id] })}
+        />
+      )}
+
+      {resizing && (
+        <ResizeDialog
+          image={resizing}
+          onApply={(width) => void doResize(resizing.id, width)}
+          onClose={() => setResizing(null)}
         />
       )}
 

@@ -11,7 +11,7 @@ import { headers } from "next/headers";
 import { requireAuth } from "./auth";
 import { checkMagicBytes, getTrustedClientIp } from "./security";
 import { loadVault, updateVault } from "./store";
-import { putObject, deleteObject, testConnection, storageStatus } from "./storage";
+import { putObject, getObject, deleteObject, testConnection, storageStatus } from "./storage";
 import type { VaultData, VaultImage, VaultAlbum } from "./types";
 
 export type ActionResult<T = object> = ({ ok: true } & T) | { ok: false; error: string };
@@ -300,6 +300,90 @@ export async function moveVaultImages(ids: string[], albumId: string | null): Pr
   });
   if ("error" in res) return { ok: false, error: res.error };
   return { ok: true };
+}
+
+// ── Downscaling an existing image ─────────────────────────────────────────────
+// Re-encoding at a smaller width, in place. The result goes to a NEW key rather
+// than overwriting the old one: objects are served with a one-year immutable
+// cache, so an overwrite would keep handing out the old bytes from Cloudflare's
+// edge for months. A new key means a new URL — which the UI has to say plainly,
+// because anything already embedded elsewhere points at the old one.
+
+/** Encodes at the requested width and reports the result without saving. */
+export async function previewResize(
+  id: string,
+  width: number,
+): Promise<ActionResult<{ bytes: number; width: number; height: number }>> {
+  await requireAuth();
+
+  const image = (await loadVault()).images.find((i) => i.id === id);
+  if (!image) return { ok: false, error: "ไม่พบรูปนี้" };
+  if (!Number.isFinite(width) || width < 16) return { ok: false, error: "ขนาดไม่ถูกต้อง" };
+
+  const source = await getObject(image.key);
+  if (!source) return { ok: false, error: "อ่านไฟล์ต้นฉบับไม่ได้" };
+
+  try {
+    const { data, info } = await encodeAtWidth(source, width);
+    return { ok: true, bytes: data.length, width: info.width, height: info.height };
+  } catch (e) {
+    console.error("previewResize failed:", e);
+    return { ok: false, error: "ย่อรูปไม่สำเร็จ" };
+  }
+}
+
+export async function applyResize(
+  id: string,
+  width: number,
+): Promise<ActionResult<{ image: VaultImage }>> {
+  await requireAuth();
+
+  const vault = await loadVault();
+  const image = vault.images.find((i) => i.id === id);
+  if (!image) return { ok: false, error: "ไม่พบรูปนี้" };
+  if (!Number.isFinite(width) || width < 16) return { ok: false, error: "ขนาดไม่ถูกต้อง" };
+
+  const source = await getObject(image.key);
+  if (!source) return { ok: false, error: "อ่านไฟล์ต้นฉบับไม่ได้" };
+
+  let stored: { key: string; url: string };
+  let encoded: { data: Buffer; info: { width: number; height: number } };
+  try {
+    encoded = await encodeAtWidth(source, width);
+    stored = await putObject(`img/${monthFolder()}/${randomUUID()}.webp`, encoded.data, "image/webp");
+  } catch (e) {
+    console.error("applyResize encode/put failed:", e);
+    return { ok: false, error: "ย่อรูปไม่สำเร็จ" };
+  }
+
+  const next: VaultImage = {
+    ...image,
+    key: stored.key,
+    url: stored.url,
+    width: encoded.info.width,
+    height: encoded.info.height,
+    bytes: encoded.data.length,
+    mime: "image/webp",
+  };
+
+  const res = await updateVault<{ ok: boolean }>((data) => {
+    const i = data.images.findIndex((x) => x.id === id);
+    if (i !== -1) data.images[i] = next;
+    return { next: data, result: { ok: i !== -1 } };
+  });
+  if ("error" in res) return { ok: false, error: res.error };
+
+  // Only once the catalog points at the new object is the old one safe to drop.
+  await deleteObject(image.key).catch((e) => console.error("applyResize cleanup failed:", e));
+
+  return { ok: true, image: next };
+}
+
+async function encodeAtWidth(source: Uint8Array, width: number) {
+  return sharp(source, { animated: false })
+    .resize(width, undefined, { fit: "inside", withoutEnlargement: true })
+    .webp({ quality: WEBP_QUALITY, effort: 4 })
+    .toBuffer({ resolveWithObject: true });
 }
 
 // ── Albums ────────────────────────────────────────────────────────────────────

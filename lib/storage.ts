@@ -212,6 +212,26 @@ export async function putCatalog(json: string): Promise<void> {
   }
 }
 
+/** Reads an object back. Needed to re-encode an image or hand it to the
+ *  clipboard, neither of which can go through the public URL: the browser
+ *  cannot read cross-origin bytes without a CORS policy on the bucket. */
+export async function getObject(key: string): Promise<Uint8Array | null> {
+  const cfg = readR2Config();
+
+  if (!cfg) {
+    try {
+      return new Uint8Array(await fs.readFile(path.join(/*turbopackIgnore: true*/ UPLOAD_DIR, path.basename(key))));
+    } catch {
+      return null;
+    }
+  }
+
+  const res = await awsClient(cfg).fetch(objectUrl(cfg, key));
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`R2 GET failed (${res.status})`);
+  return new Uint8Array(await res.arrayBuffer());
+}
+
 /** Lists every image object in the bucket — used to rebuild a lost catalog. */
 export async function listImageObjects(): Promise<{ key: string; size: number }[]> {
   const cfg = readR2Config();
