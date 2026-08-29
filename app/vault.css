@@ -730,3 +730,8 @@
 }
 .resize-warn svg { flex: none; margin-top: 1px; }
 .resize-warn b { font-weight: 600; }
+.resize-warn[data-tone="ok"] { background: rgba(74, 222, 128, 0.08); color: #86efac; }
+.resize-warn code {
+  font-family: var(--font-mono), monospace; font-size: 10.5px;
+  padding: 1px 4px; border-radius: 4px; background: rgba(0,0,0,0.3);
+}

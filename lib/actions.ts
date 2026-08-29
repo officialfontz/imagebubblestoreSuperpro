@@ -12,6 +12,7 @@ import { requireAuth } from "./auth";
 import { checkMagicBytes, getTrustedClientIp } from "./security";
 import { loadVault, updateVault } from "./store";
 import { putObject, getObject, deleteObject, testConnection, storageStatus } from "./storage";
+import { canPurge, purgeUrls } from "./purge";
 import type { VaultData, VaultImage, VaultAlbum } from "./types";
 
 export type ActionResult<T = object> = ({ ok: true } & T) | { ok: false; error: string };
@@ -263,6 +264,12 @@ export async function purgeVaultImages(ids: string[]): Promise<ActionResult<{ pu
     console.error("vault deleteObject failed:", i.key, e);
   })));
 
+  // Without this the edge keeps serving a deleted image for up to a year —
+  // best-effort, since the metadata removal below matters more.
+  if (canPurge()) {
+    await purgeUrls(targets.map((i) => i.url)).catch(() => undefined);
+  }
+
   const purgeIds = new Set(targets.map((i) => i.id));
   const res = await updateVault<{ purged: number }>((data) => {
     const before = data.images.length;
@@ -303,11 +310,17 @@ export async function moveVaultImages(ids: string[], albumId: string | null): Pr
 }
 
 // ── Downscaling an existing image ─────────────────────────────────────────────
-// Re-encoding at a smaller width, in place. The result goes to a NEW key rather
-// than overwriting the old one: objects are served with a one-year immutable
-// cache, so an overwrite would keep handing out the old bytes from Cloudflare's
-// edge for months. A new key means a new URL — which the UI has to say plainly,
-// because anything already embedded elsewhere points at the old one.
+// Re-encoding at a smaller width, in place.
+//
+// The URL must survive. A storefront accumulates hundreds of embedded links
+// over years, and any scheme that changes one means going back to edit every
+// page that used it — so the object is overwritten at its existing key and the
+// stale copy is purged from Cloudflare's edge.
+//
+// Without purge credentials that is not safe: the one-year immutable cache
+// would keep the old bytes in circulation for months and the resize would look
+// like it did nothing. So when purge is unavailable we fall back to writing a
+// new key, and the UI says which of the two will happen before you commit.
 
 /** Encodes at the requested width and reports the result without saving. */
 export async function previewResize(
@@ -346,14 +359,29 @@ export async function applyResize(
   const source = await getObject(image.key);
   if (!source) return { ok: false, error: "อ่านไฟล์ต้นฉบับไม่ได้" };
 
+  const keepUrl = canPurge();
+
   let stored: { key: string; url: string };
   let encoded: { data: Buffer; info: { width: number; height: number } };
   try {
     encoded = await encodeAtWidth(source, width);
-    stored = await putObject(`img/${monthFolder()}/${randomUUID()}.webp`, encoded.data, "image/webp");
+    stored = keepUrl
+      // Same key: the URL is the thing being protected here.
+      ? await putObject(image.key, encoded.data, "image/webp")
+      : await putObject(`img/${monthFolder()}/${randomUUID()}.webp`, encoded.data, "image/webp");
   } catch (e) {
     console.error("applyResize encode/put failed:", e);
     return { ok: false, error: "ย่อรูปไม่สำเร็จ" };
+  }
+
+  if (keepUrl) {
+    // The bytes are already replaced; until the edge is purged, visitors keep
+    // getting the old ones. A failure here is worth reporting rather than
+    // leaving the user to wonder why nothing changed.
+    const purge = await purgeUrls([image.url]);
+    if (!purge.ok) {
+      return { ok: false, error: `ย่อไฟล์แล้ว แต่ล้างแคช CDN ไม่สำเร็จ (${purge.reason ?? "ไม่ทราบสาเหตุ"}) — รูปอาจยังขึ้นเป็นของเดิมสักพัก` };
+    }
   }
 
   const next: VaultImage = {
@@ -373,8 +401,11 @@ export async function applyResize(
   });
   if ("error" in res) return { ok: false, error: res.error };
 
-  // Only once the catalog points at the new object is the old one safe to drop.
-  await deleteObject(image.key).catch((e) => console.error("applyResize cleanup failed:", e));
+  // Only relevant on the fallback path — on the same-key path there is no old
+  // object, and deleting it would delete the replacement.
+  if (!keepUrl && stored.key !== image.key) {
+    await deleteObject(image.key).catch((e) => console.error("applyResize cleanup failed:", e));
+  }
 
   return { ok: true, image: next };
 }

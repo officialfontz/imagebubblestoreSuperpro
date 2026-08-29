@@ -5,7 +5,7 @@
 // the size you get — not an estimate. Only then does the confirm button write.
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Minimize2, AlertTriangle, ArrowRight } from "lucide-react";
+import { Loader2, Minimize2, AlertTriangle, ArrowRight, ShieldCheck } from "lucide-react";
 import type { VaultImage } from "@/lib/types";
 import { previewResize } from "@/lib/actions";
 import { formatBytes } from "./ui";
@@ -21,9 +21,11 @@ type Preview = { bytes: number; width: number; height: number };
 type Result = { forWidth: number; preview: Preview | null; error: string | null };
 
 export default function ResizeDialog({
-  image, onApply, onClose,
+  image, keepsUrl, onApply, onClose,
 }: {
   image: VaultImage;
+  /** Whether the edge cache can be purged, and so whether the URL survives. */
+  keepsUrl: boolean;
   onApply: (width: number) => void;
   onClose: () => void;
 }) {
@@ -113,13 +115,24 @@ export default function ResizeDialog({
           )}
         </div>
 
-        <p className="resize-warn">
-          <AlertTriangle size={14} />
-          <span>
-            <b>ลิงก์ของรูปนี้จะเปลี่ยนเป็นลิงก์ใหม่</b> — ถ้าเคยเอาลิงก์เดิมไปแปะที่เว็บอื่นไว้
-            ต้องกลับไปเปลี่ยนด้วย ไม่งั้นรูปตรงนั้นจะหาย
-          </span>
-        </p>
+        {keepsUrl ? (
+          <p className="resize-warn" data-tone="ok">
+            <ShieldCheck size={14} />
+            <span>
+              <b>ลิงก์เดิมไม่เปลี่ยน</b> — ทับไฟล์เดิมแล้วสั่ง Cloudflare ล้างแคชให้
+              ที่แปะไว้ตามเว็บต่าง ๆ ไม่ต้องไปแก้อะไรเลย
+            </span>
+          </p>
+        ) : (
+          <p className="resize-warn">
+            <AlertTriangle size={14} />
+            <span>
+              <b>ลิงก์ของรูปนี้จะเปลี่ยนเป็นลิงก์ใหม่</b> — ถ้าเคยเอาลิงก์เดิมไปแปะที่เว็บอื่นไว้
+              ต้องกลับไปเปลี่ยนด้วย · ตั้งค่า <code>CF_ZONE_ID</code> + <code>CF_PURGE_TOKEN</code>
+              แล้วลิงก์จะคงเดิม
+            </span>
+          </p>
+        )}
 
         <div className="modal-foot">
           <button type="button" className="btn btn--ghost" onClick={onClose}>ยกเลิก</button>

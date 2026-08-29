@@ -15,6 +15,7 @@
 // but SigV4-sign a fetch(), which matters on a 256 MB Railway container.
 
 import { AwsClient } from "aws4fetch";
+import { canPurge } from "./purge";
 import fs from "fs/promises";
 import path from "path";
 
@@ -51,6 +52,9 @@ export type StorageStatus = {
   missing: string[];
   /** True when links can go through Cloudflare's /cdn-cgi/image resizer. */
   canResize: boolean;
+  /** True when the edge cache can be purged, which is what lets an image be
+   *  replaced in place without its URL changing. */
+  canPurge: boolean;
 };
 
 /** Human-readable status for the vault's storage card and copy menu. */
@@ -74,6 +78,7 @@ export function storageStatus(): StorageStatus {
     publicBase: cfg?.publicBase ?? "/uploads",
     missing,
     canResize,
+    canPurge: canPurge(),
   };
 }
 

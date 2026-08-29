@@ -1032,6 +1032,7 @@ export default function VaultApp({ initialData, storage }: Props) {
       {resizing && (
         <ResizeDialog
           image={resizing}
+          keepsUrl={storage.canPurge}
           onApply={(width) => void doResize(resizing.id, width)}
           onClose={() => setResizing(null)}
         />
