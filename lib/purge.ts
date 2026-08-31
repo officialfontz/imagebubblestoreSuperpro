@@ -19,10 +19,25 @@ const API = "https://api.cloudflare.com/client/v4";
 
 type PurgeConfig = { zoneId: string; token: string };
 
+/** A Cloudflare zone id is always 32 lowercase hex characters. */
+const ZONE_ID_RE = /^[0-9a-f]{32}$/;
+
 function readConfig(): PurgeConfig | null {
   const zoneId = process.env.CF_ZONE_ID?.trim();
   const token = process.env.CF_PURGE_TOKEN?.trim();
   if (!zoneId || !token) return null;
+
+  // Worth checking rather than trusting: a zone id is copied by hand into a
+  // dashboard, and losing one character produces a 32-character-looking value
+  // that fails only at the moment of purging — after the object has already
+  // been overwritten, with the stale copy left in circulation.
+  if (!ZONE_ID_RE.test(zoneId)) {
+    console.error(
+      `CF_ZONE_ID is not a valid zone id (expected 32 hex characters, got ${zoneId.length}: "${zoneId}")`,
+    );
+    return null;
+  }
+
   return { zoneId, token };
 }
 

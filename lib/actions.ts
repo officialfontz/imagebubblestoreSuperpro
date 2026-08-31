@@ -360,6 +360,7 @@ export async function applyResize(
   if (!source) return { ok: false, error: "อ่านไฟล์ต้นฉบับไม่ได้" };
 
   const keepUrl = canPurge();
+  let purgeFailed = false;
 
   let stored: { key: string; url: string };
   let encoded: { data: Buffer; info: { width: number; height: number } };
@@ -380,8 +381,12 @@ export async function applyResize(
     // leaving the user to wonder why nothing changed.
     const purge = await purgeUrls([image.url]);
     if (!purge.ok) {
-      return { ok: false, error: `ย่อไฟล์แล้ว แต่ล้างแคช CDN ไม่สำเร็จ (${purge.reason ?? "ไม่ทราบสาเหตุ"}) — รูปอาจยังขึ้นเป็นของเดิมสักพัก` };
+      // The catalog is deliberately still updated below: the object really did
+      // change, and leaving the entry describing the old file would make the
+      // grid disagree with what the URL serves once the cache does expire.
+      console.error("applyResize: purge failed, cache will serve stale bytes until it expires");
     }
+    purgeFailed = !purge.ok;
   }
 
   const next: VaultImage = {
@@ -405,6 +410,13 @@ export async function applyResize(
   // object, and deleting it would delete the replacement.
   if (!keepUrl && stored.key !== image.key) {
     await deleteObject(image.key).catch((e) => console.error("applyResize cleanup failed:", e));
+  }
+
+  if (purgeFailed) {
+    return {
+      ok: false,
+      error: "ย่อไฟล์สำเร็จ แต่ล้างแคช Cloudflare ไม่ได้ — ตรวจ CF_ZONE_ID (ต้องเป็น 32 ตัวอักษร) แล้วลองใหม่ · รูปจะยังขึ้นเป็นของเดิมจนกว่าแคชจะหมดอายุ",
+    };
   }
 
   return { ok: true, image: next };
