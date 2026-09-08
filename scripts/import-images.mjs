@@ -19,7 +19,7 @@
  *                         file for its new URL. Repeatable. Writes a .bak first.
  *   --dry                 Report what would happen; touch nothing.
  *
- * The encode settings below mirror lib/actions.ts. If you change them there,
+ * The encode settings below mirror lib/encode.ts. If you change them there,
  * change them here too — otherwise imported images will not match uploaded ones.
  */
 
@@ -33,7 +33,7 @@ const MAX_DIMENSION = Number(process.env.VAULT_MAX_DIMENSION ?? 3000);
 const WEBP_QUALITY = Number(process.env.VAULT_WEBP_QUALITY ?? 92);
 
 /** Flat-colour graphics often come out smaller as lossless WebP than as a
- *  high-quality lossy one. Photographs never do — see lib/actions.ts. */
+ *  high-quality lossy one. Photographs never do — see lib/encode.ts. */
 function shouldTryLossless(ext) {
   return ext === ".png" || ext === ".gif" || ext === ".webp";
 }
@@ -128,7 +128,7 @@ async function putObject(key, body, contentType) {
   return { key, url: `${cfg.publicBase}/${key}` };
 }
 
-// ── Encode (mirrors lib/actions.ts) ───────────────────────────────────────────
+// ── Encode (mirrors lib/encode.ts) ───────────────────────────────────────────
 
 async function encode(input, ext) {
   const animated = ext === ".gif";

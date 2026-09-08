@@ -6,6 +6,7 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import {
   SESSION_COOKIE, createSessionToken, passwordMatches, getHmacKey, sessionCookieOptions,
+  vaultPasswords, type VaultRole,
 } from "./session";
 import { getTrustedClientIp } from "./security";
 
@@ -36,9 +37,9 @@ function recordFailure(ip: string): void {
 export type SignInState = { error?: string };
 
 export async function signIn(_prev: SignInState, formData: FormData): Promise<SignInState> {
-  const expected = process.env.VAULT_PASSWORD;
+  const { owner, staff } = vaultPasswords();
   const hmacKey = getHmacKey();
-  if (!expected || !hmacKey) {
+  if (!owner || !hmacKey) {
     return { error: "เซิร์ฟเวอร์ยังตั้งค่าไม่ครบ (VAULT_PASSWORD / HMAC_KEY)" };
   }
 
@@ -48,15 +49,24 @@ export async function signIn(_prev: SignInState, formData: FormData): Promise<Si
     return { error: `ใส่รหัสผิดหลายครั้ง กรุณารออีก ${waitMinutes} นาที` };
   }
 
+  // One form, two passwords: which one was typed decides the role. Both are
+  // always compared so a wrong guess takes the same time either way.
   const supplied = String(formData.get("password") ?? "");
-  if (!await passwordMatches(supplied, expected, hmacKey)) {
+  const [isOwner, isStaff] = await Promise.all([
+    passwordMatches(supplied, owner, hmacKey),
+    staff ? passwordMatches(supplied, staff, hmacKey) : Promise.resolve(false),
+  ]);
+
+  const role: VaultRole | null = isOwner ? "owner" : isStaff ? "staff" : null;
+  if (!role) {
     recordFailure(ip);
     return { error: "รหัสผ่านไม่ถูกต้อง" };
   }
 
   attempts.delete(ip);
+  const password = role === "owner" ? owner : staff!;
   const store = await cookies();
-  store.set(SESSION_COOKIE, await createSessionToken(expected, hmacKey), sessionCookieOptions());
+  store.set(SESSION_COOKIE, await createSessionToken(password, hmacKey, role), sessionCookieOptions());
 
   // redirect() throws a control-flow signal, so nothing after it runs.
   redirect("/");

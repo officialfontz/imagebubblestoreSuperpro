@@ -99,18 +99,22 @@ async function main() {
   if (objects.length === 0) return;
 
   // ── Existing catalog ───────────────────────────────────────────────────────
-  let existing = { version: 1, albums: [], images: [] };
+  let existing = { version: 1, albums: [], images: [], staff: [] };
   const res = await client.fetch(objectUrl(catalogKey));
   if (res.ok) {
     existing = JSON.parse(await res.text());
-    console.log(`แคตตาล็อกเดิม: ${existing.images.length} รูป · ${existing.albums.length} คอลเลกชัน`);
+    console.log(`แคตตาล็อกเดิม: ${existing.images.length} รูป · ${existing.albums.length} คอลเลกชัน · ${(existing.staff ?? []).length} ทีมงาน`);
   } else if (res.status === 404) {
     console.log("ไม่พบแคตตาล็อกเดิม — จะสร้างใหม่ทั้งหมด");
   } else {
     throw new Error(`อ่านแคตตาล็อกไม่สำเร็จ (${res.status})`);
   }
 
-  const base = REPLACE ? { version: 1, albums: existing.albums, images: [] } : existing;
+  // The team roster is carried over even by --replace. It is not derivable from
+// the bucket — rebuilding without it would silently un-pair every desktop app
+// and orphan every capture's uploader field.
+const staff = Array.isArray(existing.staff) ? existing.staff : [];
+const base = REPLACE ? { version: 1, albums: existing.albums, images: [], staff } : { ...existing, staff };
   const known = new Set(base.images.map((i) => i.key));
   const added = [];
 
@@ -157,6 +161,7 @@ async function main() {
     version: 1,
     albums: base.albums,
     images: [...added, ...base.images].sort((a, b) => b.createdAt - a.createdAt),
+    staff,
   };
 
   console.log(`\nจะเพิ่ม ${added.length} รูป → รวมเป็น ${next.images.length} รูป`);

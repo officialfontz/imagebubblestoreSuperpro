@@ -28,6 +28,13 @@ restartPolicyMaxRetries = 3
 #   R2_PUBLIC_BASE       e.g. https://img.yourdomain.com  (no trailing slash)
 #
 # OPTIONAL
+#   VAULT_STAFF_PASSWORD
+#                    A second password that opens the delivery-proof section
+#                    read-only. Staff can search and view every capture but
+#                    cannot delete one or manage the team, so it is safe to
+#                    hand to everyone. Unset = the role does not exist.
+#   CAPTURE_RETENTION_DAYS
+#                    Days a capture is kept before it is destroyed (default 90).
 #   DATA_DIR         Only used when R2 is NOT configured. Point at a mounted
 #   UPLOAD_DIR       Volume (/data and /data/uploads) or everything is wiped on
 #                    every redeploy.

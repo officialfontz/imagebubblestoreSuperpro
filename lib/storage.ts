@@ -102,9 +102,17 @@ function objectUrl(cfg: R2Config, key: string): string {
   return `https://${cfg.accountId}.r2.cloudflarestorage.com/${cfg.bucket}/${safeKey}`;
 }
 
-/** Local-driver filename. Flattened because /api/uploads/* serves a flat dir. */
+/**
+ * Local-driver filename. Flattened because /api/uploads/* serves a flat dir.
+ *
+ * Idempotent on purpose: this driver returns the flat name as the record's
+ * `key`, so a caller deriving a sibling object from it (a capture's metadata
+ * sidecar, say) hands back a name this already produced. Re-prefixing it would
+ * write to a path that nothing else could then find or delete.
+ */
 function localName(key: string): string {
-  return "vault-" + key.replace(/[^A-Za-z0-9._-]+/g, "-");
+  const flat = key.replace(/[^A-Za-z0-9._-]+/g, "-");
+  return flat.startsWith("vault-") ? flat : `vault-${flat}`;
 }
 
 export type PutResult = { key: string; url: string };
@@ -173,36 +181,54 @@ export async function putObject(key: string, body: Uint8Array, contentType: stri
 // is ever rotated, since the derived path would otherwise move with it.
 
 const CATALOG_PREFIX = "_catalog";
+const CAPTURES_PREFIX = "_captures";
 
-async function catalogKey(cfg: R2Config): Promise<string> {
+/**
+ * Where a catalog object lives. `name` is "catalog" for the image library, or a
+ * "YYYY-MM" month for delivery proof.
+ *
+ * Both are derived from the same unguessable digest, so the monthly capture
+ * files inherit exactly the privacy the library catalog has: reachable only by
+ * someone who already holds the R2 credentials.
+ */
+async function catalogKey(cfg: R2Config, name = "catalog"): Promise<string> {
   const override = process.env.VAULT_CATALOG_KEY?.trim();
-  if (override) return override.replace(/^\/+/, "");
+  if (override) {
+    const pinned = override.replace(/^\/+/, "");
+    if (name === "catalog") return pinned;
+    // Keep captures beside the pinned catalog rather than at the derived path,
+    // so pinning one location really does move everything.
+    const dir = pinned.includes("/") ? pinned.slice(0, pinned.lastIndexOf("/")) : "";
+    return `${dir ? `${dir}/` : ""}${CAPTURES_PREFIX}/${name}.json`;
+  }
 
   const digest = await crypto.subtle.digest(
     "SHA-256",
     new TextEncoder().encode(`bubble-vault-catalog:${cfg.secretAccessKey}`),
   );
   const hex = Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
-  return `${CATALOG_PREFIX}/${hex}.json`;
+  return name === "catalog"
+    ? `${CATALOG_PREFIX}/${hex}.json`
+    : `${CAPTURES_PREFIX}/${hex}/${name}.json`;
 }
 
-/** Reads the catalog. `null` means "no catalog stored yet", not an error. */
-export async function getCatalog(): Promise<string | null> {
+/** Reads a catalog object. `null` means "not stored yet", not an error. */
+export async function getCatalog(name = "catalog"): Promise<string | null> {
   const cfg = readR2Config();
   if (!cfg) return null;
 
-  const res = await awsClient(cfg).fetch(objectUrl(cfg, await catalogKey(cfg)));
+  const res = await awsClient(cfg).fetch(objectUrl(cfg, await catalogKey(cfg, name)));
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`R2 catalog GET failed (${res.status})`);
   return res.text();
 }
 
-export async function putCatalog(json: string): Promise<void> {
+export async function putCatalog(json: string, name = "catalog"): Promise<void> {
   const cfg = readR2Config();
   if (!cfg) throw new Error("R2 is not configured");
 
   const payload = new TextEncoder().encode(json);
-  const res = await awsClient(cfg).fetch(objectUrl(cfg, await catalogKey(cfg)), {
+  const res = await awsClient(cfg).fetch(objectUrl(cfg, await catalogKey(cfg, name)), {
     method: "PUT",
     body: payload,
     headers: {
@@ -215,6 +241,24 @@ export async function putCatalog(json: string): Promise<void> {
   if (!res.ok) {
     throw new Error(`R2 catalog PUT failed (${res.status}): ${(await res.text()).slice(0, 200)}`);
   }
+}
+
+/** Removes a whole month of delivery proof once retention has expired. */
+export async function deleteCatalog(name: string): Promise<void> {
+  const cfg = readR2Config();
+  if (!cfg) return;
+  await deleteObject(await catalogKey(cfg, name));
+}
+
+/** Lists the stored capture months, newest first. */
+export async function listCaptureMonths(): Promise<string[]> {
+  const cfg = readR2Config();
+  if (!cfg) return [];
+  const dir = (await catalogKey(cfg, "0000-00")).replace(/0000-00\.json$/, "");
+  const months = (await listObjects(dir))
+    .map((o) => /(\d{4}-\d{2})\.json$/.exec(o.key)?.[1])
+    .filter((m): m is string => Boolean(m));
+  return [...new Set(months)].sort().reverse();
 }
 
 /** Reads an object back. Needed to re-encode an image or hand it to the
@@ -238,7 +282,12 @@ export async function getObject(key: string): Promise<Uint8Array | null> {
 }
 
 /** Lists every image object in the bucket — used to rebuild a lost catalog. */
-export async function listImageObjects(): Promise<{ key: string; size: number }[]> {
+export function listImageObjects(): Promise<{ key: string; size: number }[]> {
+  return listObjects("img/");
+}
+
+/** Lists every object under a prefix, following continuation tokens. */
+export async function listObjects(prefix: string): Promise<{ key: string; size: number }[]> {
   const cfg = readR2Config();
   if (!cfg) return [];
 
@@ -248,7 +297,7 @@ export async function listImageObjects(): Promise<{ key: string; size: number }[
   do {
     const url = new URL(`https://${cfg.accountId}.r2.cloudflarestorage.com/${cfg.bucket}`);
     url.searchParams.set("list-type", "2");
-    url.searchParams.set("prefix", "img/");
+    url.searchParams.set("prefix", prefix);
     url.searchParams.set("max-keys", "1000");
     if (token) url.searchParams.set("continuation-token", token);
 

@@ -10,7 +10,7 @@
 
 import fs from "fs/promises";
 import path from "path";
-import { emptyVault, type VaultData, type VaultAlbum, type VaultImage } from "./types";
+import { emptyVault, type VaultData, type VaultAlbum, type VaultImage, type VaultStaff } from "./types";
 import { getDriver, getCatalog, putCatalog } from "./storage";
 
 export const DATA_DIR   = process.env.DATA_DIR ?? path.join(process.cwd(), "data");
@@ -37,11 +37,11 @@ let _cache: { data: VaultData; expiresAt: number } | null = null;
 // vault.json is hand-editable and survives across deploys, so every field is
 // re-validated on load rather than trusted.
 
-function isRecord(v: unknown): v is Record<string, unknown> {
+export function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
-const str = (v: unknown, fallback = "") => (typeof v === "string" ? v : fallback);
-const num = (v: unknown, fallback = 0) => (typeof v === "number" && Number.isFinite(v) ? v : fallback);
+export const str = (v: unknown, fallback = "") => (typeof v === "string" ? v : fallback);
+export const num = (v: unknown, fallback = 0) => (typeof v === "number" && Number.isFinite(v) ? v : fallback);
 
 function normalizeAlbum(raw: unknown): VaultAlbum | null {
   if (!isRecord(raw)) return null;
@@ -55,7 +55,7 @@ function normalizeAlbum(raw: unknown): VaultAlbum | null {
   };
 }
 
-function normalizeImage(raw: unknown): VaultImage | null {
+export function normalizeImage(raw: unknown): VaultImage | null {
   if (!isRecord(raw)) return null;
   const id  = str(raw.id);
   const key = str(raw.key);
@@ -73,6 +73,49 @@ function normalizeImage(raw: unknown): VaultImage | null {
     ...(typeof raw.blur === "string" && raw.blur ? { blur: raw.blur } : {}),
     ...(typeof raw.importedFrom === "string" && raw.importedFrom ? { importedFrom: raw.importedFrom } : {}),
     ...(typeof raw.deletedAt === "number" && raw.deletedAt > 0 ? { deletedAt: raw.deletedAt } : {}),
+
+    // Delivery-proof fields — absent on every library image.
+    ...(raw.kind === "capture" ? { kind: "capture" as const } : {}),
+    ...(typeof raw.uploader === "string" && raw.uploader ? { uploader: raw.uploader } : {}),
+    ...(typeof raw.customer === "string" && raw.customer ? { customer: raw.customer.slice(0, 60) } : {}),
+    ...(typeof raw.capturedAt === "number" && raw.capturedAt > 0 ? { capturedAt: raw.capturedAt } : {}),
+    ...(typeof raw.clientId === "string" && raw.clientId ? { clientId: raw.clientId.slice(0, 64) } : {}),
+  };
+}
+
+function normalizeStaff(raw: unknown): VaultStaff | null {
+  if (!isRecord(raw)) return null;
+  const id = str(raw.id);
+  if (!id) return null;
+
+  const platform = raw.platform === "windows" || raw.platform === "macos" ? raw.platform : undefined;
+  const selfTest = isRecord(raw.lastSelfTest) ? raw.lastSelfTest : null;
+  const report = isRecord(raw.lastReport) ? raw.lastReport : null;
+
+  return {
+    id,
+    name: str(raw.name, "ทีมงาน").slice(0, 40),
+    emoji: str(raw.emoji, "🧑‍💻").slice(0, 8),
+    createdAt: num(raw.createdAt, 0),
+    // Only a well-formed digest is kept. A malformed one would otherwise sit in
+    // the roster looking like valid credentials that can never match.
+    ...(/^[0-9a-f]{64}$/.test(str(raw.tokenHash)) ? { tokenHash: str(raw.tokenHash) } : {}),
+    ...(num(raw.revokedAt) > 0 ? { revokedAt: num(raw.revokedAt) } : {}),
+    ...(num(raw.lastSeenAt) > 0 ? { lastSeenAt: num(raw.lastSeenAt) } : {}),
+    ...(str(raw.deviceName) ? { deviceName: str(raw.deviceName).slice(0, 60) } : {}),
+    ...(platform ? { platform } : {}),
+    ...(str(raw.appVersion) ? { appVersion: str(raw.appVersion).slice(0, 20) } : {}),
+    ...(selfTest ? {
+      lastSelfTest: {
+        at: num(selfTest.at),
+        passed: num(selfTest.passed),
+        total: num(selfTest.total),
+        report: str(selfTest.report).slice(0, 2000),
+      },
+    } : {}),
+    ...(report ? {
+      lastReport: { at: num(report.at), text: str(report.text).slice(0, 20_000) },
+    } : {}),
   };
 }
 
@@ -90,7 +133,10 @@ function normalize(raw: unknown): VaultData {
         // than vanishing from every view.
         .map((i) => (i.albumId && !albumIds.has(i.albumId) ? { ...i, albumId: null } : i))
     : [];
-  return { version: 1, albums, images };
+  const staff = Array.isArray(raw.staff)
+    ? raw.staff.map(normalizeStaff).filter((s): s is VaultStaff => s !== null)
+    : [];
+  return { version: 1, albums, images, staff };
 }
 
 // ── Read / write ──────────────────────────────────────────────────────────────

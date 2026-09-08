@@ -14,6 +14,37 @@ export type VaultAlbum = {
   createdAt: number;
 };
 
+/**
+ * A staff member who sends delivery proof from the Bubble Capture desktop app.
+ *
+ * The roster lives in vault.json rather than a separate file because it is
+ * tiny, changes a few times a year, and every capture upload has to resolve a
+ * token against it — one already-cached read instead of a second round-trip.
+ */
+export type VaultStaff = {
+  id: string;
+  name: string;
+  /** Single emoji, shown as this person's mark in the sidebar and on tiles. */
+  emoji: string;
+  createdAt: number;
+  /**
+   * sha256 of the device's bearer token, hex. The token itself is shown once at
+   * pairing and never stored — a leaked catalog therefore cannot be used to
+   * upload. Absent means "never paired, or the access was revoked".
+   */
+  tokenHash?: string;
+  revokedAt?: number;
+  lastSeenAt?: number;
+  deviceName?: string;
+  platform?: "windows" | "macos";
+  appVersion?: string;
+  /** Result of the app's built-in five-step check, so a Windows install can be
+   *  verified without a screen share. */
+  lastSelfTest?: { at: number; passed: number; total: number; report: string };
+  /** Log tail the staff member sent with "ส่งรายงานปัญหา". */
+  lastReport?: { at: number; text: string };
+};
+
 export type VaultImage = {
   id: string;
   /** Object key inside the bucket, e.g. "img/2026-08/ab12cd34.webp". */
@@ -42,15 +73,56 @@ export type VaultImage = {
    * Emptying the trash is what actually deletes the bytes.
    */
   deletedAt?: number;
+
+  // ── Delivery-proof fields ───────────────────────────────────────────────────
+  // Only set on captures, which live in the monthly capture catalogs rather
+  // than in `images`. The type is shared so the viewer, the copy menu and
+  // resizedUrl() work on a capture without a second code path.
+
+  /** Marks this record as delivery proof rather than a library image. */
+  kind?: "capture";
+  /** VaultStaff.id of whoever sent it. */
+  uploader?: string;
+  /** The customer's in-game name — the only thing a capture is filed under. */
+  customer?: string;
+  /** Device clock at the moment of capture, which can precede createdAt by
+   *  hours if the upload sat in an offline queue. */
+  capturedAt?: number;
+  /** Device-generated UUID. A retried upload carries the same one, which is
+   *  what stops a flaky connection from filing the same proof twice. */
+  clientId?: string;
 };
 
 export type VaultData = {
   version: 1;
   albums: VaultAlbum[];
   images: VaultImage[];
+  staff: VaultStaff[];
 };
 
-export const emptyVault = (): VaultData => ({ version: 1, albums: [], images: [] });
+export const emptyVault = (): VaultData => ({ version: 1, albums: [], images: [], staff: [] });
+
+/**
+ * One month of delivery proof, stored as its own object.
+ *
+ * Captures deliberately do NOT join `images`. vault.json is read, cloned,
+ * re-serialised and re-uploaded on every single mutation, and it is shipped to
+ * the browser in full on every page load — at ~20k captures a year that file
+ * would grow into the megabytes and make renaming one library image an
+ * expensive operation. Splitting by month keeps each object under a megabyte
+ * forever and makes the 90-day sweep a file deletion instead of a rewrite.
+ */
+export type CaptureMonth = {
+  version: 1;
+  /** "YYYY-MM", UTC. */
+  month: string;
+  captures: VaultImage[];
+};
+
+export const emptyCaptureMonth = (month: string): CaptureMonth => ({ version: 1, month, captures: [] });
+
+/** How long delivery proof is kept before the sweep destroys it. */
+export const CAPTURE_RETENTION_DAYS = Number(process.env.CAPTURE_RETENTION_DAYS ?? 90);
 
 /**
  * Rewrites a public image URL to go through Cloudflare Image Resizing, which

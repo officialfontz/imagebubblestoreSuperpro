@@ -2,8 +2,12 @@
 // A signed, stateless cookie: no session store to run, no database to keep in
 // sync, and a token cannot be forged without HMAC_KEY.
 //
-//   token = "<expiresAt>.<hex signature>"
-//   signature = HMAC-SHA256(HMAC_KEY, "bv1:<expiresAt>:<password>")
+//   token = "<expiresAt>.<role>.<hex signature>"
+//   signature = HMAC-SHA256(HMAC_KEY, "bv2:<expiresAt>:<role>:<password>")
+//
+// The role is signed, not merely stored, so a staff member cannot promote their
+// own cookie to owner by editing it. Tokens in the older two-part "bv1" shape
+// still verify, as owner — a deploy should not sign everyone out.
 //
 // Binding the password into the signature means changing VAULT_PASSWORD
 // invalidates every existing session — the expected behaviour when you rotate
@@ -14,6 +18,23 @@
 
 export const SESSION_COOKIE = "bv_session";
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+/**
+ * "owner" is the shop owner: the whole app, including deleting and managing the
+ * team. "staff" is a delivery-proof reader — they can look up any customer's
+ * proof but cannot change or destroy anything, which is what makes it safe to
+ * hand the password to everyone on the team.
+ */
+export type VaultRole = "owner" | "staff";
+
+/** The configured password for each role. A blank staff password disables that
+ *  role entirely rather than granting access to everyone. */
+export function vaultPasswords(): { owner: string | null; staff: string | null } {
+  return {
+    owner: process.env.VAULT_PASSWORD?.trim() || null,
+    staff: process.env.VAULT_STAFF_PASSWORD?.trim() || null,
+  };
+}
 
 function hex(buf: ArrayBuffer): string {
   return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -43,24 +64,45 @@ export function getHmacKey(): string | null {
   return null;
 }
 
-export async function createSessionToken(password: string, hmacKey: string): Promise<string> {
-  const exp = Date.now() + SESSION_TTL_MS;
-  return `${exp}.${await sign(hmacKey, `bv1:${exp}:${password}`)}`;
-}
-
-export async function verifySessionToken(
-  token: string | undefined,
+export async function createSessionToken(
   password: string,
   hmacKey: string,
-): Promise<boolean> {
-  if (!token) return false;
-  const dot = token.indexOf(".");
-  if (dot === -1) return false;
+  role: VaultRole = "owner",
+): Promise<string> {
+  const exp = Date.now() + SESSION_TTL_MS;
+  return `${exp}.${role}.${await sign(hmacKey, `bv2:${exp}:${role}:${password}`)}`;
+}
 
-  const exp = Number(token.slice(0, dot));
-  if (!Number.isFinite(exp) || Date.now() > exp) return false;
+/**
+ * Returns the role the token proves, or null. Checks the owner password first
+ * so that if both passwords are ever set to the same string, the stronger role
+ * wins.
+ */
+export async function readSessionRole(
+  token: string | undefined,
+  hmacKey: string,
+): Promise<VaultRole | null> {
+  if (!token) return null;
+  const parts = token.split(".");
+  const { owner, staff } = vaultPasswords();
 
-  return constantTimeEqual(token.slice(dot + 1), await sign(hmacKey, `bv1:${exp}:${password}`));
+  const exp = Number(parts[0]);
+  if (!Number.isFinite(exp) || Date.now() > exp) return null;
+
+  // Legacy two-part token: owner only.
+  if (parts.length === 2) {
+    if (!owner) return null;
+    return constantTimeEqual(parts[1], await sign(hmacKey, `bv1:${exp}:${owner}`)) ? "owner" : null;
+  }
+
+  if (parts.length !== 3) return null;
+  const [, role, sig] = parts;
+  if (role !== "owner" && role !== "staff") return null;
+
+  const password = role === "owner" ? owner : staff;
+  if (!password) return null;
+
+  return constantTimeEqual(sig, await sign(hmacKey, `bv2:${exp}:${role}:${password}`)) ? role : null;
 }
 
 /** Constant-time password check for the sign-in form. */

@@ -6,12 +6,17 @@
 //                never session-gated.
 //   /login       PUBLIC, so there is somewhere to sign in.
 //   /healthz     PUBLIC, for Railway's health check.
+//   /api/pair    NO COOKIE. The desktop capture app authenticates with a bearer
+//   /api/me      token per staff device, which the route handlers verify
+//   /api/capture themselves — the cookie check here would only ever redirect a
+//   /api/selftest native HTTP client to an HTML sign-in page. Still rate-limited.
+//   /api/report
 //   everything   Requires a valid session cookie; otherwise redirected to
 //   else         /login with the original path remembered.
 
 import { NextRequest, NextResponse } from "next/server";
 import { getTrustedClientIp } from "@/lib/security";
-import { SESSION_COOKIE, getHmacKey, verifySessionToken } from "@/lib/session";
+import { SESSION_COOKIE, getHmacKey, readSessionRole, vaultPasswords } from "@/lib/session";
 
 // Scraper and mirroring tools have no business walking an image host.
 const SCRAPER_UA_RE =
@@ -27,6 +32,10 @@ const PAGE_LIMIT = 240;
 // normal page limit would 429 the images and show broken thumbnails everywhere.
 const IMAGE_LIMIT = 1200;
 const MAX_ENTRIES = 8_000;
+
+// Bearer-authenticated endpoints for the Bubble Capture desktop app. Listed
+// exactly, not by prefix: /api/png/* must stay behind the session cookie.
+const BEARER_API = new Set(["/api/pair", "/api/me", "/api/capture", "/api/selftest", "/api/report"]);
 
 function rateLimited(map: Map<string, RateEntry>, ip: string, limit: number): boolean {
   const now = Date.now();
@@ -65,17 +74,15 @@ export async function proxy(req: NextRequest): Promise<NextResponse> {
 
   if (rateLimited(pageHits, ip, PAGE_LIMIT)) return text("Too Many Requests", 429, { "Retry-After": "60" });
 
-  const password = process.env.VAULT_PASSWORD;
+  if (BEARER_API.has(pathname)) return NextResponse.next();
+
+  const { owner } = vaultPasswords();
   const hmacKey = getHmacKey();
-  if (!password || !hmacKey) {
+  if (!owner || !hmacKey) {
     return text("Vault is not configured — set VAULT_PASSWORD and HMAC_KEY", 503);
   }
 
-  const signedIn = await verifySessionToken(
-    req.cookies.get(SESSION_COOKIE)?.value,
-    password,
-    hmacKey,
-  );
+  const signedIn = await readSessionRole(req.cookies.get(SESSION_COOKIE)?.value, hmacKey) !== null;
 
   // /login stays reachable while signed out; the page itself bounces a signed-in
   // visitor back to the app.
