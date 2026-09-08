@@ -5,11 +5,16 @@
 
 import { useEffect } from "react";
 import {
-  X, ChevronLeft, ChevronRight, Copy, Pencil, Trash2, ExternalLink, FolderInput, Check,
+  X, ChevronLeft, ChevronRight, Copy, Pencil, Trash2, ExternalLink, FolderInput, Check, Clock,
 } from "lucide-react";
 import type { VaultImage, VaultAlbum, CopyFormat } from "@/lib/types";
 import { formatLink, resizedUrl, RESIZE_WIDTHS } from "@/lib/types";
-import { formatBytes, timeAgo } from "./ui";
+import { CAPTURE_RETENTION_DAYS } from "@/lib/types";
+import { daysLeft, formatBytes, timeAgo } from "./ui";
+
+const BANGKOK_STAMP = new Intl.DateTimeFormat("th-TH", {
+  timeZone: "Asia/Bangkok", dateStyle: "medium", timeStyle: "short",
+});
 
 const LINKS: { format: CopyFormat; kind: string }[] = [
   { format: "direct",   kind: "ลิงก์ตรง" },
@@ -32,10 +37,22 @@ type Props = {
   onRename: () => void;
   onDelete: () => void;
   onPickAlbum: (e: React.MouseEvent) => void;
+  /**
+   * Set when the image is delivery proof rather than a library image. Proof has
+   * no collection, no resize, and its heading is the customer it belongs to.
+   */
+  capture?: {
+    staffName: string;
+    staffEmoji: string;
+    deviceName?: string;
+    /** Read-only staff sessions get the same panel without the edit controls. */
+    canEdit: boolean;
+  };
 };
 
 export default function Viewer({
-  image, albums, hasPrev, hasNext, onPrev, onNext, onClose, onCopy, onRename, onDelete, onPickAlbum, canResize,
+  image, albums, hasPrev, hasNext, onPrev, onNext, onClose, onCopy, onRename, onDelete, onPickAlbum,
+  canResize, capture,
 }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -48,6 +65,8 @@ export default function Viewer({
   }, [onClose, onPrev, onNext, hasPrev, hasNext]);
 
   const album = albums.find((a) => a.id === image.albumId);
+  const capturedAt = image.capturedAt ?? image.createdAt;
+  const expiresInDays = capture ? daysLeft(capturedAt, CAPTURE_RETENTION_DAYS) : 0;
 
   return (
     <div className="viewer">
@@ -74,8 +93,10 @@ export default function Viewer({
 
       <aside className="inspect">
         <div className="inspect-scroll">
-          <h3>{image.name}</h3>
-          <p className="inspect-sub">อัปโหลด{timeAgo(image.createdAt)}</p>
+          <h3>{capture ? image.customer ?? image.name : image.name}</h3>
+          <p className="inspect-sub">
+            {capture ? `ส่งเมื่อ${timeAgo(capturedAt)}` : `อัปโหลด${timeAgo(image.createdAt)}`}
+          </p>
 
           <div className="sect">
             <span className="sect-label">คัดลอกลิงก์</span>
@@ -96,7 +117,7 @@ export default function Viewer({
             ))}
           </div>
 
-          {canResize && (
+          {canResize && !capture && (
             <div className="sect">
               <span className="sect-label">ลิงก์ย่อขนาด</span>
               {/* One stored original, any width on request — Cloudflare resizes
@@ -123,6 +144,28 @@ export default function Viewer({
           <div className="sect">
             <span className="sect-label">รายละเอียด</span>
             <dl className="facts">
+              {capture && (
+                <>
+                  <div className="fact">
+                    <dt>ผู้ส่ง</dt>
+                    <dd><span aria-hidden>{capture.staffEmoji}</span> {capture.staffName}</dd>
+                  </div>
+                  <div className="fact">
+                    <dt>ชื่อลูกค้า</dt>
+                    <dd>{image.customer ?? "—"}</dd>
+                  </div>
+                  <div className="fact" style={{ gridColumn: "span 2" }}>
+                    <dt>เวลาแคป</dt>
+                    <dd className="tnum">{BANGKOK_STAMP.format(new Date(capturedAt))} น.</dd>
+                  </div>
+                  {capture.deviceName && (
+                    <div className="fact" style={{ gridColumn: "span 2" }}>
+                      <dt>เครื่อง</dt>
+                      <dd>{capture.deviceName}</dd>
+                    </div>
+                  )}
+                </>
+              )}
               <div className="fact">
                 <dt>ขนาดภาพ</dt>
                 <dd className="tnum">{image.width && image.height ? `${image.width} × ${image.height}` : "—"}</dd>
@@ -136,30 +179,48 @@ export default function Viewer({
                 <dd>{image.mime.replace("image/", "").toUpperCase()}</dd>
               </div>
               <div className="fact">
-                <dt>สถานะ</dt>
-                <dd style={{ color: "var(--ok)", display: "flex", alignItems: "center", gap: 5 }}>
-                  <Check size={13} /> พร้อมใช้
-                </dd>
+                {capture ? (
+                  <>
+                    <dt>เก็บอีก</dt>
+                    <dd style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                      <Clock size={13} color="var(--ink-3)" />
+                      <span className="tnum">{expiresInDays} วัน</span>
+                    </dd>
+                  </>
+                ) : (
+                  <>
+                    <dt>สถานะ</dt>
+                    <dd style={{ color: "var(--ok)", display: "flex", alignItems: "center", gap: 5 }}>
+                      <Check size={13} /> พร้อมใช้
+                    </dd>
+                  </>
+                )}
               </div>
             </dl>
           </div>
 
-          <div className="sect">
-            <span className="sect-label">คอลเลกชัน</span>
-            <button type="button" className="picker" onClick={onPickAlbum}>
-              <span aria-hidden>{album ? album.emoji : "📥"}</span>
-              <span className="picker-label">{album ? album.name : "ยังไม่จัดหมวด"}</span>
-              <FolderInput size={14} color="var(--ink-3)" />
-            </button>
-          </div>
+          {!capture && (
+            <div className="sect">
+              <span className="sect-label">คอลเลกชัน</span>
+              <button type="button" className="picker" onClick={onPickAlbum}>
+                <span aria-hidden>{album ? album.emoji : "📥"}</span>
+                <span className="picker-label">{album ? album.name : "ยังไม่จัดหมวด"}</span>
+                <FolderInput size={14} color="var(--ink-3)" />
+              </button>
+            </div>
+          )}
 
           <div className="sect">
             <span className="sect-label">การจัดการ</span>
-            <button type="button" className="picker" onClick={onRename}>
-              <Pencil size={14} color="var(--ink-3)" />
-              <span className="picker-label">เปลี่ยนชื่อ</span>
-            </button>
-            <div style={{ height: 6 }} />
+            {(!capture || capture.canEdit) && (
+              <>
+                <button type="button" className="picker" onClick={onRename}>
+                  <Pencil size={14} color="var(--ink-3)" />
+                  <span className="picker-label">{capture ? "แก้ชื่อลูกค้า" : "เปลี่ยนชื่อ"}</span>
+                </button>
+                <div style={{ height: 6 }} />
+              </>
+            )}
             <a className="picker" href={image.url} target="_blank" rel="noopener noreferrer">
               <ExternalLink size={14} color="var(--ink-3)" />
               <span className="picker-label">เปิดลิงก์ในแท็บใหม่</span>
@@ -171,9 +232,16 @@ export default function Viewer({
           <button type="button" className="btn btn--primary" style={{ flex: 1 }} onClick={() => onCopy("direct")}>
             <Copy size={14} /> คัดลอกลิงก์
           </button>
-          <button type="button" className="btn btn--danger" onClick={onDelete} aria-label="ลบรูปนี้">
-            <Trash2 size={15} />
-          </button>
+          {(!capture || capture.canEdit) && (
+            <button
+              type="button"
+              className="btn btn--danger"
+              onClick={onDelete}
+              aria-label={capture ? "ลบหลักฐานนี้" : "ลบรูปนี้"}
+            >
+              <Trash2 size={15} />
+            </button>
+          )}
         </div>
       </aside>
     </div>

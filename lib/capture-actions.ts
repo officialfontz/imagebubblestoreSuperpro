@@ -10,7 +10,7 @@ import { requireAuth, requireOwner } from "./auth";
 import { loadVault, updateVault } from "./store";
 import { deleteObject } from "./storage";
 import { canPurge, purgeUrls } from "./purge";
-import { issuePairingCode, revokePairingCodes } from "./pairing";
+import { issuePairingCode } from "./pairing";
 import {
   listCaptureMonths as listMonths, loadCaptureMonth, loadCaptureMonths, monthOf,
   recentMonths, shopDay, updateCaptureMonth,
@@ -64,13 +64,14 @@ export async function updateStaff(id: string, name: string, emoji: string): Prom
  */
 export async function revokeStaff(id: string): Promise<ActionResult> {
   await requireOwner();
-  revokePairingCodes(id);
 
   const res = await updateVault<{ found: boolean }>((data) => {
     const staff = data.staff.find((s) => s.id === id);
     if (staff) {
       staff.revokedAt = Date.now();
       delete staff.tokenHash;
+      // A code issued a minute ago must not survive the revoke that followed it.
+      delete staff.pairing;
     }
     return { next: data, result: { found: Boolean(staff) } };
   });
@@ -92,7 +93,6 @@ export async function deleteStaff(id: string): Promise<ActionResult> {
     return { ok: false, error: "ยังมีหลักฐานที่ส่งโดยคนนี้ — ใช้ยกเลิกสิทธิ์แทน" };
   }
 
-  revokePairingCodes(id);
   const res = await updateVault<{ ok: boolean }>((data) => {
     data.staff = data.staff.filter((s) => s.id !== id);
     return { next: data, result: { ok: true } };
@@ -107,7 +107,9 @@ export async function createPairingCode(
   await requireOwner();
   const staff = (await loadVault()).staff.find((s) => s.id === staffId);
   if (!staff) return { ok: false, error: "ไม่พบทีมงานคนนี้" };
-  return { ok: true, ...issuePairingCode(staffId) };
+  const issued = await issuePairingCode(staffId);
+  if ("error" in issued) return { ok: false, error: issued.error };
+  return { ok: true, ...issued };
 }
 
 // ── Captures ──────────────────────────────────────────────────────────────────

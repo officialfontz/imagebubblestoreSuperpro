@@ -8,9 +8,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Upload, Search, X, Copy, Trash2, Pencil, FolderInput, ExternalLink,
   ArrowUpDown, LayoutGrid, Grid2x2, Check, ImageOff, Sparkles, Inbox, Shrink, Undo2, Plus,
-  ImageDown, Minimize2,
+  ImageDown, Minimize2, Calendar,
 } from "lucide-react";
-import type { VaultData, VaultImage, VaultAlbum, CopyFormat } from "@/lib/types";
+import type { VaultData, VaultImage, VaultAlbum, VaultStaff, CopyFormat } from "@/lib/types";
 import { formatLink, resizedUrl, RESIZE_WIDTHS } from "@/lib/types";
 import type { StorageStatus } from "@/lib/storage";
 import {
@@ -18,7 +18,11 @@ import {
   renameVaultImage, moveVaultImages, applyResize,
   createVaultAlbum, updateVaultAlbum, deleteVaultAlbum,
 } from "@/lib/actions";
-import Rail, { ALL, UNFILED, TRASH, TEXT_TOOL } from "./Rail";
+import type { VaultRole } from "@/lib/session";
+import { deleteCapture, loadCaptures, renameCapture } from "@/lib/capture-actions";
+import Rail, { ALL, UNFILED, TRASH, TEXT_TOOL, CAPTURES, isCaptureView, captureStaffId } from "./Rail";
+import CapturesView from "./CapturesView";
+import StaffModal from "./StaffModal";
 import TextTool from "./TextTool";
 import ResizeDialog from "./ResizeDialog";
 import Tile from "./Tile";
@@ -27,13 +31,17 @@ import Tray, { type UploadJob } from "./Tray";
 import { useVirtualGrid } from "./useVirtualGrid";
 import { useMarqueeSelect } from "./useMarqueeSelect";
 import {
-  Menu, MenuItem, PromptModal, ConfirmModal, ToastStack, copyText, formatBytes,
+  Menu, MenuItem, PromptModal, ConfirmModal, ToastStack, copyText, formatBytes, monthKey,
   type Toast, type PromptSpec, type ConfirmSpec, type MenuAnchor,
 } from "./ui";
 
 type Props = {
   initialData: VaultData;
   storage: StorageStatus;
+  role: VaultRole;
+  /** Current month's delivery proof, rendered on the first paint. */
+  initialCaptures: VaultImage[];
+  captureMonths: string[];
 };
 
 type Sort = "new" | "old" | "name" | "size";
@@ -56,17 +64,32 @@ const COPY_FORMATS: { format: CopyFormat; label: string }[] = [
  *  12 MB files never sit in the container's heap at the same time. */
 const CONCURRENCY = 2;
 
+/** "2026-09" → "กันยายน 2026", for the month picker. */
+function monthLabel(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString("th-TH", {
+    month: "long", year: "numeric", timeZone: "UTC",
+  });
+}
+
 type MenuState =
   | { kind: "tile"; anchor: MenuAnchor; image: VaultImage }
   | { kind: "bulk"; anchor: MenuAnchor }
   | { kind: "move"; anchor: MenuAnchor; ids: string[] }
   | { kind: "sort"; anchor: MenuAnchor }
-  | { kind: "album"; anchor: MenuAnchor; album: VaultAlbum };
+  | { kind: "album"; anchor: MenuAnchor; album: VaultAlbum }
+  | { kind: "month"; anchor: MenuAnchor };
 
-export default function VaultApp({ initialData, storage }: Props) {
+export default function VaultApp({ initialData, storage, role, initialCaptures, captureMonths }: Props) {
+  const isOwner = role === "owner";
   const [albums, setAlbums] = useState<VaultAlbum[]>(initialData.albums);
   const [images, setImages] = useState<VaultImage[]>(initialData.images);
-  const [active, setActive] = useState<string>(ALL);
+  const [staff, setStaff] = useState<VaultStaff[]>(initialData.staff);
+  const [captures, setCaptures] = useState<VaultImage[]>(initialCaptures);
+  const [captureMonth, setCaptureMonth] = useState(() => monthKey(Date.now()));
+  const [staffOpen, setStaffOpen] = useState(false);
+  // A read-only team session has no library to land on.
+  const [active, setActive] = useState<string>(isOwner ? ALL : CAPTURES);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<Sort>("new");
   const [dense, setDense] = useState(false);
@@ -98,10 +121,15 @@ export default function VaultApp({ initialData, storage }: Props) {
   const inTrash = active === TRASH;
   // The text tool takes over the main column; none of the image chrome applies.
   const inTextTool = active === TEXT_TOOL;
+  // Delivery proof does the same, and additionally has its own search, its own
+  // viewer and its own month.
+  const inCaptures = isCaptureView(active);
+  const captureStaff = captureStaffId(active);
+  const currentMonth = monthKey(Date.now());
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (active === TEXT_TOOL) return [];
+    if (active === TEXT_TOOL || isCaptureView(active)) return [];
     const list = images.filter((img) => {
       // Binned images appear in exactly one place, and nowhere else.
       if (Boolean(img.deletedAt) !== (active === TRASH)) return false;
@@ -177,11 +205,33 @@ export default function VaultApp({ initialData, storage }: Props) {
   const viewerIndex = viewerId ? visible.findIndex((i) => i.id === viewerId) : -1;
   const viewerImage = viewerIndex >= 0 ? visible[viewerIndex] : null;
 
+  const captureCounts = useMemo(() => {
+    const byStaff: Record<string, number> = {};
+    let total = 0;
+    const today = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(new Date());
+    for (const c of captures) {
+      const day = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit",
+      }).format(new Date(c.capturedAt ?? c.createdAt));
+      if (day !== today) continue;
+      total++;
+      if (c.uploader) byStaff[c.uploader] = (byStaff[c.uploader] ?? 0) + 1;
+    }
+    return { total, byStaff };
+  }, [captures]);
+
+  const captureStaffMember = captureStaff ? staff.find((s) => s.id === captureStaff) : undefined;
+
   const title =
     active === ALL ? "รูปทั้งหมด"
     : active === UNFILED ? "ยังไม่จัดหมวด"
     : active === TRASH ? "ถังขยะ"
     : active === TEXT_TOOL ? "ค้นหา & แทนที่"
+    : active === CAPTURES ? "หลักฐานส่งของ"
+    : captureStaffMember ? `${captureStaffMember.emoji} ${captureStaffMember.name}`
+    : captureStaff ? "หลักฐานส่งของ"
     : albums.find((a) => a.id === active)?.name ?? "รูปทั้งหมด";
 
   // ── Upload ──────────────────────────────────────────────────────────────────
@@ -191,7 +241,13 @@ export default function VaultApp({ initialData, storage }: Props) {
   const targetAlbumRef = useRef(targetAlbum);
   targetAlbumRef.current = targetAlbum;
 
+  // Same trick for "may this session upload at all": the window listeners below
+  // are registered once, and would otherwise close over a stale view.
+  const uploadableRef = useRef(true);
+  uploadableRef.current = isOwner && !inCaptures && !inTextTool;
+
   const runUploads = useCallback(async (files: File[]) => {
+    if (!uploadableRef.current) return;
     const accepted = files.filter((f) => f.type.startsWith("image/"));
     if (accepted.length === 0) {
       say("ไม่พบไฟล์รูปในสิ่งที่วาง", "error");
@@ -247,7 +303,7 @@ export default function VaultApp({ initialData, storage }: Props) {
   useEffect(() => {
     const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
 
-    const onEnter = (e: DragEvent) => { if (hasFiles(e)) { dragDepth.current++; setDragFiles(true); } };
+    const onEnter = (e: DragEvent) => { if (hasFiles(e) && uploadableRef.current) { dragDepth.current++; setDragFiles(true); } };
     const onOver  = (e: DragEvent) => { if (hasFiles(e)) e.preventDefault(); };
     // dragenter/dragleave fire per element; a depth counter is the only reliable
     // way to tell that the pointer actually left the window.
@@ -569,6 +625,47 @@ export default function VaultApp({ initialData, storage }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [selectedCount, selectedImages, visible, query, viewerId, prompt, confirm, askDelete, askPurge, inTrash, copyMany]);
 
+  // ── Delivery proof ──────────────────────────────────────────────────────────
+  // Optimistic like every other mutation here: the row disappears immediately
+  // and comes back if the server refuses, so a slow connection never makes the
+  // click feel ignored.
+
+  const askRenameCapture = useCallback((capture: VaultImage) => {
+    setPrompt({
+      title: "แก้ชื่อลูกค้า",
+      value: capture.customer ?? capture.name,
+      placeholder: "ชื่อในเกมของลูกค้า",
+      confirm: "บันทึก",
+      onConfirm: (name) => {
+        const before = captures;
+        setCaptures((prev) => prev.map((c) => (c.id === capture.id ? { ...c, customer: name, name } : c)));
+        void renameCapture(capture.id, captureMonth, name).then((res) => {
+          if (res.ok) return;
+          setCaptures(before);
+          say(res.error, "error");
+        });
+      },
+    });
+  }, [captures, captureMonth, say]);
+
+  const askDeleteCapture = useCallback((capture: VaultImage) => {
+    setConfirm({
+      title: `ลบหลักฐานของ “${capture.customer ?? capture.name}”?`,
+      body: "หลักฐานไม่มีถังขยะ — ลบแล้วหายถาวรทันที",
+      confirm: "ลบถาวร",
+      tone: "danger",
+      onConfirm: () => {
+        const before = captures;
+        setCaptures((prev) => prev.filter((c) => c.id !== capture.id));
+        void deleteCapture(capture.id, captureMonth).then((res) => {
+          if (res.ok) { say("ลบหลักฐานแล้ว"); return; }
+          setCaptures(before);
+          say(res.error, "error");
+        });
+      },
+    });
+  }, [captures, captureMonth, say]);
+
   // ── Menu helpers ────────────────────────────────────────────────────────────
   const closeMenu = useCallback(() => setMenu(null), []);
   const openTileMenu = (e: React.MouseEvent, image: VaultImage) => {
@@ -595,6 +692,9 @@ export default function VaultApp({ initialData, storage }: Props) {
     <div className="shell">
       <Rail
         albums={albums}
+        staff={staff}
+        role={role}
+        captureCounts={captureCounts}
         active={active}
         counts={counts}
         totalBytes={totalBytes}
@@ -606,13 +706,19 @@ export default function VaultApp({ initialData, storage }: Props) {
         onDropOnAlbum={(albumId) => { if (dragTiles) void doMove(dragTiles, albumId); setDragTiles(null); }}
         isDraggingTiles={dragTiles !== null}
         onShowSetup={showSetup}
+        onOpenStaff={() => setStaffOpen(true)}
       />
 
       <div className="main">
         <header className="bar">
           <div className="bar-title">
             <h1>{title}</h1>
-            {!inTextTool && (
+            {inCaptures ? (
+              <span className="tnum">
+                {captureStaff ? captureCounts.byStaff[captureStaff] ?? 0 : captureCounts.total} รูปวันนี้
+                {query && ` · ค้นหา “${query}”`}
+              </span>
+            ) : !inTextTool && (
               <span className="tnum">
                 {visible.length} รูป
                 {query && ` · ค้นหา “${query}”`}
@@ -629,8 +735,8 @@ export default function VaultApp({ initialData, storage }: Props) {
             <input
               value={query}
               onChange={(e) => { setQuery(e.target.value); resetScroll(); }}
-              placeholder="ค้นหาชื่อรูป…"
-              aria-label="ค้นหารูป"
+              placeholder={inCaptures ? "ค้นหาชื่อลูกค้าหรือทีมงาน…" : "ค้นหาชื่อรูป…"}
+              aria-label={inCaptures ? "ค้นหาหลักฐาน" : "ค้นหารูป"}
             />
             {query && (
               <button type="button" onClick={() => setQuery("")} aria-label="ล้างคำค้น" style={{ display: "grid" }}>
@@ -639,6 +745,16 @@ export default function VaultApp({ initialData, storage }: Props) {
             )}
           </label>
 
+          {inCaptures ? (
+            <button
+              type="button"
+              className="btn"
+              onClick={(e) => setMenu({ kind: "month", anchor: { x: e.clientX - 120, y: e.clientY + 14 } })}
+            >
+              <Calendar size={15} />
+              {monthLabel(captureMonth)}
+            </button>
+          ) : (
           <button
             type="button"
             className="iconbtn"
@@ -648,7 +764,9 @@ export default function VaultApp({ initialData, storage }: Props) {
           >
             <ArrowUpDown size={16} />
           </button>
+          )}
 
+          {!inCaptures && (
           <div className="seg" role="group" aria-label="ขนาดตาราง">
             <button type="button" data-on={!dense} onClick={() => setDense(false)} aria-label="ตารางปกติ">
               <LayoutGrid size={15} />
@@ -657,8 +775,9 @@ export default function VaultApp({ initialData, storage }: Props) {
               <Grid2x2 size={15} />
             </button>
           </div>
+          )}
 
-          {inTrash ? (
+          {inCaptures ? null : inTrash ? (
             <button
               type="button"
               className="btn btn--danger"
@@ -686,7 +805,23 @@ export default function VaultApp({ initialData, storage }: Props) {
             ? ({ "--tile": "132px", "--gap": "11px" } as React.CSSProperties)
             : undefined}
         >
-          {inTextTool ? <TextTool /> : <>
+          {inTextTool ? <TextTool /> : inCaptures ? (
+            <CapturesView
+              captures={captures}
+              staff={staff}
+              role={role}
+              filterStaffId={captureStaff}
+              query={query}
+              month={captureMonth}
+              currentMonth={currentMonth}
+              canResize={storage.canResize}
+              onCopy={(capture, format, width) => void copyOne(capture, format, width)}
+              onRename={askRenameCapture}
+              onDelete={askDeleteCapture}
+              onRefresh={setCaptures}
+              onOpenStaff={() => setStaffOpen(true)}
+            />
+          ) : <>
 
           {/* The reversible-vs-permanent distinction should never be a surprise. */}
           {inTrash && visible.length > 0 && (
@@ -877,6 +1012,28 @@ export default function VaultApp({ initialData, storage }: Props) {
         </Menu>
       )}
 
+      {menu?.kind === "month" && (
+        <Menu anchor={menu.anchor} onClose={closeMenu}>
+          <div className="menu-label">เดือน</div>
+          {(captureMonths.includes(currentMonth) ? captureMonths : [currentMonth, ...captureMonths]).map((m) => (
+            <MenuItem
+              key={m}
+              icon={captureMonth === m ? <Check size={14} color="var(--violet-hi)" /> : null}
+              label={monthLabel(m)}
+              onClick={() => {
+                closeMenu();
+                setCaptureMonth(m);
+                resetScroll();
+                // The month files are separate objects, so switching is a fetch.
+                void loadCaptures(m)
+                  .then((r) => setCaptures(r.captures))
+                  .catch(() => say("โหลดหลักฐานเดือนนี้ไม่สำเร็จ", "error"));
+              }}
+            />
+          ))}
+        </Menu>
+      )}
+
       {menu?.kind === "move" && (
         <Menu anchor={menu.anchor} onClose={closeMenu}>
           <div className="menu-label">ย้ายไปที่</div>
@@ -1035,6 +1192,17 @@ export default function VaultApp({ initialData, storage }: Props) {
           keepsUrl={storage.canPurge}
           onApply={(width) => void doResize(resizing.id, width)}
           onClose={() => setResizing(null)}
+        />
+      )}
+
+      {staffOpen && (
+        <StaffModal
+          staff={staff}
+          onClose={() => setStaffOpen(false)}
+          onChanged={setStaff}
+          say={say}
+          ask={setPrompt}
+          confirm={setConfirm}
         />
       )}
 

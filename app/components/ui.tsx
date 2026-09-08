@@ -72,6 +72,65 @@ export function ToastStack({ toasts, raised }: { toasts: Toast[]; raised: boolea
 
 // ── Popup menu ────────────────────────────────────────────────────────────────
 
+// ── The shop's day ────────────────────────────────────────────────────────────
+// Delivery proof is counted in Bangkok time, not UTC or the viewer's clock: a
+// capture at 2am belongs to that night's shift, and the owner checking from
+// anywhere should see the same "today" the staff do.
+
+const BANGKOK_DAY = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit",
+});
+
+const BANGKOK_CLOCK = new Intl.DateTimeFormat("th-TH", {
+  timeZone: "Asia/Bangkok", hour: "2-digit", minute: "2-digit", hour12: false,
+});
+
+/**
+ * "14:32" in Bangkok. Used instead of a relative time wherever the value is
+ * server-rendered: "16 นาทีที่แล้ว" is computed from the clock, so the server
+ * and the browser disagree by the time hydration runs and React throws out the
+ * markup. A wall-clock time is also the better label under a day heading —
+ * within "วันนี้", the hour is what tells two captures apart.
+ */
+export function clockTime(ts: number): string {
+  return BANGKOK_CLOCK.format(new Date(ts));
+}
+
+export function shopDay(ts: number): string {
+  return BANGKOK_DAY.format(new Date(ts));
+}
+
+/** "YYYY-MM" in UTC — matches the month files on the server. */
+export function monthKey(ts: number): string {
+  const d = new Date(ts);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+// Spelled out rather than taken from Intl: Node and the browser ship different
+// ICU data for Thai, and `weekday: "short"` renders "จ." on the server against
+// "จันทร์" in the browser — enough of a text mismatch to fail hydration and
+// make React throw away the server markup.
+const THAI_WEEKDAYS = ["อาทิตย์", "จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์"];
+const THAI_MONTHS = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+
+/** "วันนี้" / "เมื่อวาน" / a Thai date, for the day headings in the proof grid. */
+export function dayLabel(day: string, now: number = Date.now()): string {
+  if (day === shopDay(now)) return "วันนี้";
+  if (day === shopDay(now - 86_400_000)) return "เมื่อวาน";
+  const [y, m, d] = day.split("-").map(Number);
+  const weekday = THAI_WEEKDAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+  return `${weekday} ${d} ${THAI_MONTHS[m - 1]}`;
+}
+
+/** Whole days left before a timestamp ages out of a retention window. */
+export function daysLeft(ts: number, retentionDays: number): number {
+  return Math.max(0, Math.ceil((ts + retentionDays * 86_400_000 - Date.now()) / 86_400_000));
+}
+
+export function nowMs(): number {
+  return Date.now();
+}
+
 export type MenuAnchor = { x: number; y: number };
 
 export function Menu({
@@ -130,7 +189,11 @@ export function MenuItem({
 
 // ── Modals ────────────────────────────────────────────────────────────────────
 
-function Scrim({ onClose, children, label }: { onClose: () => void; children: React.ReactNode; label: string }) {
+export function Scrim({ onClose, children, label, wide }: {
+  onClose: () => void; children: React.ReactNode; label: string;
+  /** Wider frame, for a dialog that holds a list rather than a question. */
+  wide?: boolean;
+}) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     document.addEventListener("keydown", onKey);
@@ -139,7 +202,7 @@ function Scrim({ onClose, children, label }: { onClose: () => void; children: Re
 
   return (
     <div className="scrim" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="modal" role="dialog" aria-modal="true" aria-label={label}>
+      <div className={wide ? "modal modal--wide" : "modal"} role="dialog" aria-modal="true" aria-label={label}>
         {children}
       </div>
     </div>

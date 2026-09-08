@@ -5,8 +5,10 @@
 import { useState } from "react";
 import {
   Upload, Images, Inbox, Plus, Pencil, HardDrive, Cloud, Layers, LogOut, Trash2, Replace,
+  PackageCheck, Users, Eye,
 } from "lucide-react";
-import type { VaultAlbum } from "@/lib/types";
+import type { VaultAlbum, VaultStaff } from "@/lib/types";
+import type { VaultRole } from "@/lib/session";
 import { signOut } from "@/lib/login-actions";
 import { formatBytes } from "./ui";
 
@@ -14,9 +16,19 @@ export const ALL = "__all__";
 export const UNFILED = "__unfiled__";
 export const TRASH = "__trash__";
 export const TEXT_TOOL = "__text__";
+/** Delivery proof from every staff member. */
+export const CAPTURES = "__captures__";
+/** One staff member's proof. Prefixed so it can never collide with an album id. */
+export const captureStaffKey = (id: string) => `cap:${id}`;
+export const isCaptureView = (active: string) => active === CAPTURES || active.startsWith("cap:");
+export const captureStaffId = (active: string) => (active.startsWith("cap:") ? active.slice(4) : null);
 
 type Props = {
   albums: VaultAlbum[];
+  staff: VaultStaff[];
+  role: VaultRole;
+  /** Today's proof, total and per person. */
+  captureCounts: { total: number; byStaff: Record<string, number> };
   active: string;
   counts: { all: number; unfiled: number; trash: number; byAlbum: Map<string, number> };
   totalBytes: number;
@@ -29,14 +41,20 @@ type Props = {
   onDropOnAlbum: (albumId: string | null) => void;
   isDraggingTiles: boolean;
   onShowSetup: () => void;
+  onOpenStaff: () => void;
 };
 
 export default function Rail({
-  albums, active, counts, totalBytes, storage,
-  onSelect, onUpload, onNewAlbum, onEditAlbum, onDropOnAlbum, isDraggingTiles, onShowSetup,
+  albums, staff, role, captureCounts, active, counts, totalBytes, storage,
+  onSelect, onUpload, onNewAlbum, onEditAlbum, onDropOnAlbum, isDraggingTiles, onShowSetup, onOpenStaff,
 }: Props) {
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const onR2 = storage.driver === "r2";
+  // The read-only team account exists so anyone can look a customer up. The
+  // image library, the upload button and the tools are simply not theirs, so
+  // they are absent rather than present-and-refusing.
+  const isOwner = role === "owner";
+  const roster = staff.filter((s) => !s.revokedAt);
 
   // R2's free tier covers 10 GB of storage. It is not a hard cap — past it the
   // charge is a couple of cents per GB — but it is the only number here that
@@ -67,106 +85,164 @@ export default function Rail({
           <span className="brand-mark"><Layers size={17} strokeWidth={2.2} /></span>
           <span className="brand-text">
             <span className="brand-name">Bubble Vault</span>
-            <span className="brand-sub">คลังรูปส่วนตัว</span>
+            <span className="brand-sub">{isOwner ? "คลังรูปส่วนตัว" : "หลักฐานส่งของ · ดูอย่างเดียว"}</span>
           </span>
         </div>
-        <button type="button" className="btn btn--primary btn--block" onClick={onUpload}>
-          <Upload size={15} strokeWidth={2.2} />
-          อัปโหลดรูป
-        </button>
+        {isOwner && (
+          <button type="button" className="btn btn--primary btn--block" onClick={onUpload}>
+            <Upload size={15} strokeWidth={2.2} />
+            อัปโหลดรูป
+          </button>
+        )}
       </div>
 
       <nav className="rail-scroll">
-        <button
-          type="button"
-          className="nav-item"
-          data-active={active === ALL}
-          onClick={() => onSelect(ALL)}
-        >
-          <span className="nav-icon"><Images size={16} /></span>
-          <span className="nav-name">รูปทั้งหมด</span>
-          <span className="nav-count tnum">{counts.all}</span>
-        </button>
-
-        <button
-          type="button"
-          className="nav-item"
-          data-active={active === UNFILED}
-          onClick={() => onSelect(UNFILED)}
-          {...dropProps(UNFILED, null)}
-        >
-          <span className="nav-icon"><Inbox size={16} /></span>
-          <span className="nav-name">ยังไม่จัดหมวด</span>
-          <span className="nav-count tnum">{counts.unfiled}</span>
-        </button>
-
-        {counts.trash > 0 && (
+        {isOwner && (<>
           <button
             type="button"
             className="nav-item"
-            data-active={active === TRASH}
-            onClick={() => onSelect(TRASH)}
+            data-active={active === ALL}
+            onClick={() => onSelect(ALL)}
           >
-            <span className="nav-icon"><Trash2 size={16} /></span>
-            <span className="nav-name">ถังขยะ</span>
-            <span className="nav-count tnum">{counts.trash}</span>
+            <span className="nav-icon"><Images size={16} /></span>
+            <span className="nav-name">รูปทั้งหมด</span>
+            <span className="nav-count tnum">{counts.all}</span>
           </button>
-        )}
 
-        <div className="nav-label">
-          คอลเลกชัน
-          <button type="button" onClick={onNewAlbum} aria-label="สร้างคอลเลกชันใหม่">
-            <Plus size={14} />
+          <button
+            type="button"
+            className="nav-item"
+            data-active={active === UNFILED}
+            onClick={() => onSelect(UNFILED)}
+            {...dropProps(UNFILED, null)}
+          >
+            <span className="nav-icon"><Inbox size={16} /></span>
+            <span className="nav-name">ยังไม่จัดหมวด</span>
+            <span className="nav-count tnum">{counts.unfiled}</span>
           </button>
-        </div>
 
-        {albums.length === 0 ? (
-          <button type="button" className="nav-item" onClick={onNewAlbum}>
-            <span className="nav-icon"><Plus size={16} /></span>
-            <span className="nav-name">สร้างคอลเลกชันแรก</span>
-          </button>
-        ) : (
-          albums.map((album) => (
+          {counts.trash > 0 && (
             <button
-              key={album.id}
               type="button"
               className="nav-item"
-              data-active={active === album.id}
-              onClick={() => onSelect(album.id)}
-              {...dropProps(album.id, album.id)}
+              data-active={active === TRASH}
+              onClick={() => onSelect(TRASH)}
             >
-              <span className="nav-icon" aria-hidden>{album.emoji}</span>
-              <span className="nav-name">{album.name}</span>
-              <span className="nav-count tnum">{counts.byAlbum.get(album.id) ?? 0}</span>
-              <span
-                className="nav-edit"
-                role="button"
-                tabIndex={0}
-                aria-label={`ตัวเลือกของ ${album.name}`}
-                onClick={(e) => { e.stopPropagation(); onEditAlbum(album, e); }}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); onEditAlbum(album, e as unknown as React.MouseEvent); } }}
+              <span className="nav-icon"><Trash2 size={16} /></span>
+              <span className="nav-name">ถังขยะ</span>
+              <span className="nav-count tnum">{counts.trash}</span>
+            </button>
+          )}
+
+          <div className="nav-label">
+            คอลเลกชัน
+            <button type="button" onClick={onNewAlbum} aria-label="สร้างคอลเลกชันใหม่">
+              <Plus size={14} />
+            </button>
+          </div>
+
+          {albums.length === 0 ? (
+            <button type="button" className="nav-item" onClick={onNewAlbum}>
+              <span className="nav-icon"><Plus size={16} /></span>
+              <span className="nav-name">สร้างคอลเลกชันแรก</span>
+            </button>
+          ) : (
+            albums.map((album) => (
+              <button
+                key={album.id}
+                type="button"
+                className="nav-item"
+                data-active={active === album.id}
+                onClick={() => onSelect(album.id)}
+                {...dropProps(album.id, album.id)}
               >
-                <Pencil size={12} />
-              </span>
+                <span className="nav-icon" aria-hidden>{album.emoji}</span>
+                <span className="nav-name">{album.name}</span>
+                <span className="nav-count tnum">{counts.byAlbum.get(album.id) ?? 0}</span>
+                <span
+                  className="nav-edit"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`ตัวเลือกของ ${album.name}`}
+                  onClick={(e) => { e.stopPropagation(); onEditAlbum(album, e); }}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); onEditAlbum(album, e as unknown as React.MouseEvent); } }}
+                >
+                  <Pencil size={12} />
+                </span>
+              </button>
+            ))
+          )}
+        </>)}
+
+        <div className="nav-label">
+          หลักฐานส่งของ
+          {isOwner && (
+            <button type="button" onClick={onOpenStaff} aria-label="จัดการทีมงาน">
+              <Users size={14} />
+            </button>
+          )}
+        </div>
+
+        <button
+          type="button"
+          className="nav-item"
+          data-active={active === CAPTURES}
+          onClick={() => onSelect(CAPTURES)}
+        >
+          <span className="nav-icon"><PackageCheck size={16} /></span>
+          <span className="nav-name">ทั้งหมด</span>
+          <span className="nav-count tnum">{captureCounts.total}</span>
+        </button>
+
+        {roster.length === 0 ? (
+          isOwner && (
+            <button type="button" className="nav-item" onClick={onOpenStaff}>
+              <span className="nav-icon"><Plus size={16} /></span>
+              <span className="nav-name">เพิ่มทีมงานคนแรก</span>
+            </button>
+          )
+        ) : (
+          roster.map((member) => (
+            <button
+              key={member.id}
+              type="button"
+              className="nav-item"
+              data-active={active === captureStaffKey(member.id)}
+              onClick={() => onSelect(captureStaffKey(member.id))}
+            >
+              <span className="nav-icon" aria-hidden>{member.emoji}</span>
+              <span className="nav-name">{member.name}</span>
+              <span className="nav-count tnum">{captureCounts.byStaff[member.id] ?? 0}</span>
             </button>
           ))
         )}
       </nav>
 
-      <nav className="rail-tools">
-        <div className="nav-label">เครื่องมือ</div>
-        <button
-          type="button"
-          className="nav-item"
-          data-active={active === TEXT_TOOL}
-          onClick={() => onSelect(TEXT_TOOL)}
-        >
-          <span className="nav-icon"><Replace size={16} /></span>
-          <span className="nav-name">ค้นหา &amp; แทนที่</span>
-        </button>
-      </nav>
+      {isOwner && (
+        <nav className="rail-tools">
+          <div className="nav-label">เครื่องมือ</div>
+          <button
+            type="button"
+            className="nav-item"
+            data-active={active === TEXT_TOOL}
+            onClick={() => onSelect(TEXT_TOOL)}
+          >
+            <span className="nav-icon"><Replace size={16} /></span>
+            <span className="nav-name">ค้นหา &amp; แทนที่</span>
+          </button>
+        </nav>
+      )}
 
       <div className="rail-foot">
+        {!isOwner && (
+          <div className="storage" style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+            <Eye size={15} color="var(--ink-3)" />
+            <span style={{ fontSize: 12, lineHeight: 1.5, color: "var(--ink-2)" }}>
+              เข้าด้วยรหัสทีมงาน — ดูและค้นหาได้ แก้หรือลบไม่ได้
+            </span>
+          </div>
+        )}
+        {isOwner && (
         <div className="storage">
           <div className="storage-top">
             {onR2 ? <Cloud size={14} color="var(--ok)" /> : <HardDrive size={14} color="var(--warn)" />}
@@ -201,6 +277,7 @@ export default function Rail({
             </p>
           )}
         </div>
+        )}
 
         <form action={signOut}>
           <button type="submit" className="btn btn--ghost btn--block signout">

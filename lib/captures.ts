@@ -27,6 +27,11 @@ export function monthOf(ts: number): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
+/** The month proof is being filed into right now. */
+export function currentMonth(): string {
+  return monthOf(Date.now());
+}
+
 /**
  * Which month file a capture belongs in.
  *

@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
     return fail(400, "bad-request", "ข้อมูลไม่ถูกต้อง");
   }
 
-  const staffId = consumePairingCode(String(body.code ?? ""));
+  const staffId = await consumePairingCode(String(body.code ?? ""));
   if (!staffId) return fail(400, "bad-code", "รหัสจับคู่ไม่ถูกต้องหรือหมดอายุแล้ว");
 
   const device = readDeviceHeader(req);

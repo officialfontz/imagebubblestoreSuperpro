@@ -33,6 +33,13 @@ export type VaultStaff = {
    * upload. Absent means "never paired, or the access was revoked".
    */
   tokenHash?: string;
+  /**
+   * A live pairing code, as a digest. Set while the owner has one on screen and
+   * cleared the moment it is redeemed. Stored rather than kept in memory
+   * because the code is issued by a server action and redeemed by a route
+   * handler, which are not guaranteed to share a process module.
+   */
+  pairing?: { hash: string; expiresAt: number };
   revokedAt?: number;
   lastSeenAt?: number;
   deviceName?: string;

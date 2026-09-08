@@ -100,6 +100,9 @@ function normalizeStaff(raw: unknown): VaultStaff | null {
     // Only a well-formed digest is kept. A malformed one would otherwise sit in
     // the roster looking like valid credentials that can never match.
     ...(/^[0-9a-f]{64}$/.test(str(raw.tokenHash)) ? { tokenHash: str(raw.tokenHash) } : {}),
+    ...(isRecord(raw.pairing) && /^[0-9a-f]{64}$/.test(str(raw.pairing.hash)) && num(raw.pairing.expiresAt) > Date.now()
+      ? { pairing: { hash: str(raw.pairing.hash), expiresAt: num(raw.pairing.expiresAt) } }
+      : {}),
     ...(num(raw.revokedAt) > 0 ? { revokedAt: num(raw.revokedAt) } : {}),
     ...(num(raw.lastSeenAt) > 0 ? { lastSeenAt: num(raw.lastSeenAt) } : {}),
     ...(str(raw.deviceName) ? { deviceName: str(raw.deviceName).slice(0, 60) } : {}),
