@@ -122,10 +122,24 @@ export async function createPairingCode(
 
 // ── Captures ──────────────────────────────────────────────────────────────────
 
-export async function loadCaptures(month: string): Promise<{ captures: VaultImage[] }> {
+/**
+ * One month of proof — or, with `since`, only what landed after that moment.
+ *
+ * Every open tab polls this every 20 seconds. Sending the whole month each time
+ * was ~700 bytes per capture per poll: a busy month is 400 KB, twenty times an
+ * hour, per screen — most of it to the owner's phone on mobile data. A delta is
+ * a few hundred bytes or nothing. `total` lets the client notice a deletion it
+ * cannot see in a delta and fall back to a full load.
+ */
+export async function loadCaptures(
+  month: string,
+  since?: number,
+): Promise<{ captures: VaultImage[]; total: number; partial: boolean }> {
   await requireAuth();
   const data = await loadCaptureMonth(month);
-  return { captures: data.captures };
+  const total = data.captures.length;
+  if (since === undefined) return { captures: data.captures, total, partial: false };
+  return { captures: data.captures.filter((c) => c.createdAt > since), total, partial: true };
 }
 
 /**

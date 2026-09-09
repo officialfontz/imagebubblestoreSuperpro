@@ -6,6 +6,8 @@
 //                never session-gated.
 //   /login       PUBLIC, so there is somewhere to sign in.
 //   /healthz     PUBLIC, for Railway's health check.
+//   /manifest.webmanifest, /icon-*.png, /apple-touch-icon.png
+//                PUBLIC: fetched cookie-less by "add to home screen".
 //   /api/pair    NO COOKIE. The desktop capture app authenticates with a bearer
 //   /api/me      token per staff device, which the route handlers verify
 //   /api/capture themselves — the cookie check here would only ever redirect a
@@ -35,6 +37,8 @@ const MAX_ENTRIES = 8_000;
 
 // Bearer-authenticated endpoints for the Bubble Capture desktop app. Listed
 // exactly, not by prefix: /api/png/* must stay behind the session cookie.
+const PWA_ASSETS = new Set(["/manifest.webmanifest", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png"]);
+
 const BEARER_API = new Set(["/api/pair", "/api/me", "/api/capture", "/api/selftest", "/api/report"]);
 
 function rateLimited(map: Map<string, RateEntry>, ip: string, limit: number): boolean {
@@ -64,6 +68,11 @@ export async function proxy(req: NextRequest): Promise<NextResponse> {
   const ip = getTrustedClientIp(req.headers) ?? "unknown";
 
   if (pathname === "/healthz") return text("ok", 200);
+
+  // The install manifest and its icons. A phone fetches these without the
+  // session cookie when "add to home screen" is tapped; redirecting them to
+  // the sign-in page made the install silently produce a blank icon.
+  if (PWA_ASSETS.has(pathname)) return NextResponse.next();
 
   // ── Public image path ──────────────────────────────────────────────────────
   if (pathname.startsWith("/uploads/")) {

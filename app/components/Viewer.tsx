@@ -83,8 +83,11 @@ export default function Viewer({
           </button>
         )}
 
+        {/* A screen-sized variant where the CDN can make one. The original is
+            for embedding and downloading; on a phone it is 200 KB+ per open
+            for pixels the display cannot show. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img key={image.id} src={image.url} alt={image.name} />
+        <img key={image.id} src={canResize ? resizedUrl(image.url, 1600) : image.url} alt={image.name} />
 
         {hasNext && (
           <button type="button" className="viewer-nav" data-side="next" onClick={onNext} aria-label="รูปถัดไป">

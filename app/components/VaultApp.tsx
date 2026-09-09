@@ -280,15 +280,32 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
     return [...merged.values()].filter((c) => !deletedCaptures.current.has(c.id));
   }, [captures, archive, captureQuery]);
 
-  const refreshCaptures = useCallback(async (month: string) => {
+  /** Newest createdAt this tab has seen for the open month — the delta cursor. */
+  const newestSeen = useRef(Math.max(0, ...initialCaptures.map((c) => c.createdAt)));
+  const captureCount = useRef(initialCaptures.length);
+
+  const refreshCaptures = useCallback(async (month: string, full = false) => {
+    const since = full ? undefined : newestSeen.current;
     const [current, wide] = await Promise.all([
-      loadCaptures(month).then((r) => r.captures).catch(() => null),
+      loadCaptures(month, since).catch(() => null),
       archive ? searchCaptures().then((r) => r.captures).catch(() => null) : Promise.resolve(null),
     ]);
     if (current) {
-      setCaptures(current);
-      const fresh = current.filter((c) => !seenCaptures.current.has(c.id));
-      for (const c of current) seenCaptures.current.add(c.id);
+      const fresh = current.captures.filter((c) => !seenCaptures.current.has(c.id));
+      for (const c of current.captures) {
+        seenCaptures.current.add(c.id);
+        newestSeen.current = Math.max(newestSeen.current, c.createdAt);
+      }
+      if (current.partial) {
+        if (fresh.length) setCaptures((prev) => [...fresh, ...prev]);
+        captureCount.current += fresh.length;
+        // A delta cannot show a deletion or an edit made elsewhere; a count
+        // that disagrees with the server's is the signal to load properly.
+        if (captureCount.current !== current.total) void refreshCaptures(month, true);
+      } else {
+        setCaptures(current.captures);
+        captureCount.current = current.captures.length;
+      }
       if (alerts) announce(fresh);
     }
     if (wide) setArchive(wide);
@@ -1216,7 +1233,12 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
                 resetScroll();
                 // The month files are separate objects, so switching is a fetch.
                 void loadCaptures(m)
-                  .then((r) => setCaptures(r.captures))
+                  .then((r) => {
+                    setCaptures(r.captures);
+                    // The delta cursor belongs to the month on screen.
+                    newestSeen.current = Math.max(0, ...r.captures.map((c) => c.createdAt));
+                    captureCount.current = r.captures.length;
+                  })
                   .catch(() => say("โหลดหลักฐานเดือนนี้ไม่สำเร็จ", "error"));
               }}
             />

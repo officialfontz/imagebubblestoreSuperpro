@@ -39,6 +39,9 @@ export const metadata: Metadata = {
   title: "Bubble Vault",
   description: "คลังรูปส่วนตัว — อัปโหลด จัดหมวด แล้วคัดลอกลิงก์ตรงไปใช้ที่เว็บไหนก็ได้",
   robots: { index: false, follow: false, nocache: true },
+  manifest: "/manifest.webmanifest",
+  icons: { apple: "/apple-touch-icon.png" },
+  appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "Bubble Vault" },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
