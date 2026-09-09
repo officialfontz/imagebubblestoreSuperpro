@@ -379,7 +379,7 @@
 }
 .viewer-stage {
   position: relative; display: grid; place-items: center;
-  padding: 40px; min-width: 0; min-height: 0;
+  padding: 24px 56px; min-width: 0; min-height: 0;
 }
 .viewer-stage img {
   max-width: 100%; max-height: 100%; object-fit: contain;
@@ -861,8 +861,9 @@
 .catbar button[data-on="true"][data-cat="robux"]    { color: var(--ok); }
 .catbar button[data-on="true"][data-cat="farm"]     { color: var(--warn); }
 
-.seg--cat { margin-top: 2px; }
-.seg--cat button { padding: 0 10px; font-size: 12px; }
+.seg--cat { margin-top: 2px; width: 100%; }
+/* The base segment is a row of 30px icon squares; these carry words. */
+.seg--cat button { flex: 1; width: auto; padding: 0 8px; font-size: 12px; white-space: nowrap; }
 
 /* Proof sitting on a staff PC instead of here. Amber while it is still being
    retried, red once the server has refused it for good. */
