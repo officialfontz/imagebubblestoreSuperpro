@@ -346,7 +346,10 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
       if (document.visibilityState !== "visible" && !alerts) return;
       void refreshCaptures(captureMonth);
     };
-    const id = setInterval(tick, document.visibilityState === "visible" ? 20_000 : 60_000);
+    // Four seconds. A poll is a few hundred bytes now that it only carries the
+    // delta, and twenty was the whole "โครตดีเลย์" between a staff member's
+    // Enter and the owner's ping.
+    const id = setInterval(tick, document.visibilityState === "visible" ? 4_000 : 15_000);
     const onVisible = () => {
       if (document.visibilityState !== "visible") return;
       unseen.current = 0;
