@@ -8,6 +8,8 @@ import ShrinkTool from "./ShrinkTool";
 import StampTool from "./StampTool";
 import CropTool from "./CropTool";
 import TemplateTool from "./TemplateTool";
+import PriceTool from "./PriceTool";
+import QrTool from "./QrTool";
 import TextTool from "./TextTool";
 
 const COMPONENTS: Record<string, React.ComponentType> = {
@@ -15,6 +17,8 @@ const COMPONENTS: Record<string, React.ComponentType> = {
   stamp: StampTool,
   crop: CropTool,
   template: TemplateTool,
+  price: PriceTool,
+  qr: QrTool,
   replace: TextTool,
 };
 

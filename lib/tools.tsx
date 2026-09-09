@@ -42,8 +42,8 @@ export const TOOL_DEFS: ToolDef[] = [
   { slug: "bg", name: "ลบพื้นหลัง", blurb: "เร็ว ๆ นี้", category: "image", Icon: Eraser },
   { slug: "replace", name: "ค้นหา & แทนที่", blurb: "วางข้อความ ตั้งกฎหลายข้อ แทนที่ทีเดียว", category: "text", Icon: Replace },
   { slug: "template", name: "เทมเพลตส่งลูกค้า", blurb: "ยืนยันออเดอร์ · ส่งแล้ว · รอคิว เติมช่องแล้วคัดลอก", category: "text", Icon: MessageSquareText },
-  { slug: "price", name: "คำนวณราคา", blurb: "Robux ↔ บาท ตามเรตร้านวันนี้", category: "shop", Icon: Calculator },
-  { slug: "qr", name: "QR ของรูป", blurb: "ลิงก์รูปในคลังเป็น QR ให้ลูกค้าสแกน", category: "shop", Icon: QrCode },
+  { slug: "price", name: "คำนวณราคา", blurb: "Robux ÷ เรต ปัดขึ้นเป็นบาท พร้อมข้อความตอบลูกค้า", category: "shop", Icon: Calculator },
+  { slug: "qr", name: "QR ลิงก์", blurb: "ลิงก์รูป หน้าร้าน หรืออะไรก็ได้ เป็น QR มีโลโก้ตรงกลาง", category: "shop", Icon: QrCode },
 ];
 
 export const toolBySlug = (slug: string) => TOOL_DEFS.find((t) => t.slug === slug);
