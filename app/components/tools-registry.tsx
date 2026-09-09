@@ -7,12 +7,14 @@ import { TOOL_DEFS } from "@/lib/tools";
 import ShrinkTool from "./ShrinkTool";
 import StampTool from "./StampTool";
 import CropTool from "./CropTool";
+import TemplateTool from "./TemplateTool";
 import TextTool from "./TextTool";
 
 const COMPONENTS: Record<string, React.ComponentType> = {
   shrink: ShrinkTool,
   stamp: StampTool,
   crop: CropTool,
+  template: TemplateTool,
   replace: TextTool,
 };
 
