@@ -136,6 +136,30 @@ export async function asPng(blob: Blob): Promise<Blob> {
   }
 }
 
+/**
+ * A PNG under a byte ceiling, for the clipboard — which takes PNG and only
+ * PNG, so a 300 KB WebP pastes as a 2 MB PNG unless the picture itself is
+ * made smaller. Scales the picture down until the PNG fits (or the longest
+ * edge reaches 320 px, past which a chat picture stops being readable).
+ */
+export async function asPngUnder(blob: Blob, limit: number): Promise<{ png: Blob; width: number; height: number }> {
+  const bitmap = await decode(blob);
+  try {
+    let edge = Math.max(bitmap.width, bitmap.height);
+    for (;;) {
+      const k = Math.min(1, edge / Math.max(bitmap.width, bitmap.height));
+      const w = Math.max(1, Math.round(bitmap.width * k)), h = Math.max(1, Math.round(bitmap.height * k));
+      const png = await toBlob(draw(bitmap, w, h), "image/png");
+      if (png.size <= limit || edge <= 320) return { png, width: w, height: h };
+      // Shrink by the square root of the overshoot — PNG size tracks pixel
+      // count roughly — but never by less than a tenth, so this converges.
+      edge = Math.round(edge * Math.min(0.9, Math.sqrt(limit / png.size)));
+    }
+  } finally {
+    bitmap.close();
+  }
+}
+
 // ── A ZIP with no compression ─────────────────────────────────────────────────
 // Every entry is already a compressed image; deflating it again would gain
 // nothing and cost a library. Store-only ZIP is forty lines and every
