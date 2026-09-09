@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Plus_Jakarta_Sans, Noto_Sans_Thai, Geist_Mono } from "next/font/google";
+import { Plus_Jakarta_Sans, Noto_Sans_Thai } from "next/font/google";
 import "./globals.css";
 import "./vault.css";
 
@@ -18,12 +18,6 @@ const thai = Noto_Sans_Thai({
   weight: ["400", "500", "600", "700"],
   display: "swap",
   variable: "--font-thai",
-});
-
-const mono = Geist_Mono({
-  subsets: ["latin"],
-  display: "swap",
-  variable: "--font-mono",
 });
 
 export const viewport: Viewport = {
@@ -48,7 +42,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="th">
       <body
-        className={`${sans.variable} ${thai.variable} ${mono.variable}`}
+        className={`${sans.variable} ${thai.variable}`}
         style={{ fontFamily: "var(--font-sans), var(--font-thai), system-ui, sans-serif" }}
       >
         {children}

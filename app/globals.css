@@ -102,7 +102,11 @@ a { color: inherit; text-decoration: none; }
   background-clip: content-box;
 }
 
-.mono { font-family: var(--font-mono), ui-monospace, "SF Mono", monospace; }
+/* The system's own monospace. It only ever sets serials, times and sizes —
+   digits — and a 25 KB webfont for digits was the one download on this page
+   with no job. Every platform ships a good one: SF Mono, Cascadia, Menlo. */
+:root { --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "Segoe UI Mono", Menlo, monospace; }
+.mono { font-family: var(--font-mono); }
 .tnum { font-variant-numeric: tabular-nums; }
 
 /* ── Motion ──────────────────────────────────────────────────────────────── */
