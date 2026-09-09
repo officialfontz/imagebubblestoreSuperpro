@@ -68,12 +68,22 @@ export async function authenticateStaff(req: Request): Promise<AuthResult> {
 
 export type DeviceInfo = { name?: string; platform?: "windows" | "macos"; appVersion?: string };
 
-/** Reads the X-Bubble-Device header the app sends with every request. */
+/**
+ * Reads the X-Bubble-Device header the app sends with every request.
+ *
+ * The value is base64 because header values are ISO-8859-1 by spec: a Thai
+ * machine name sent as raw UTF-8 arrived as mojibake and was written into the
+ * roster that way. Plain JSON is still accepted so an older build keeps working
+ * through an update.
+ */
 export function readDeviceHeader(req: Request): DeviceInfo {
   try {
     const raw = req.headers.get("x-bubble-device");
     if (!raw) return {};
-    const parsed: unknown = JSON.parse(raw);
+    const text = raw.trimStart().startsWith("{")
+      ? raw
+      : Buffer.from(raw, "base64").toString("utf8");
+    const parsed: unknown = JSON.parse(text);
     if (typeof parsed !== "object" || parsed === null) return {};
     const d = parsed as Record<string, unknown>;
     const platform = d.platform === "windows" || d.platform === "macos" ? d.platform : undefined;
