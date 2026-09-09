@@ -137,6 +137,30 @@ export async function asPng(blob: Blob): Promise<Blob> {
 }
 
 /**
+ * A lighter PNG of a canvas: the same pixels quantised to a 256-colour
+ * palette with dithering (what pngquant does), which cuts a photo's PNG to
+ * roughly a third while staying sharp. The clipboard takes only PNG, so this
+ * is the one way a copied picture gets lighter without getting smaller.
+ */
+export async function lightPng(canvas: HTMLCanvasElement): Promise<Blob> {
+  const { encode } = await import("upng-js");
+  const ctx = canvas.getContext("2d")!;
+  const rgba = ctx.getImageData(0, 0, canvas.width, canvas.height).data.buffer;
+  const out = encode([rgba], canvas.width, canvas.height, 256);
+  return new Blob([out], { type: "image/png" });
+}
+
+/** A lighter PNG of a picture at its own size. */
+export async function asLightPng(blob: Blob): Promise<Blob> {
+  const bitmap = await decode(blob);
+  try {
+    return await lightPng(draw(bitmap, bitmap.width, bitmap.height));
+  } finally {
+    bitmap.close();
+  }
+}
+
+/**
  * A PNG under a byte ceiling, for the clipboard — which takes PNG and only
  * PNG, so a 300 KB WebP pastes as a 2 MB PNG unless the picture itself is
  * made smaller. Scales the picture down until the PNG fits (or the longest
@@ -149,7 +173,10 @@ export async function asPngUnder(blob: Blob, limit: number): Promise<{ png: Blob
     for (;;) {
       const k = Math.min(1, edge / Math.max(bitmap.width, bitmap.height));
       const w = Math.max(1, Math.round(bitmap.width * k)), h = Math.max(1, Math.round(bitmap.height * k));
-      const png = await toBlob(draw(bitmap, w, h), "image/png");
+      // Full resolution and a 256-colour palette first: that alone is usually
+      // a third of the plain PNG and looks the same in a chat. Only when the
+      // palette PNG is still over the line does the picture get smaller.
+      const png = await lightPng(draw(bitmap, w, h));
       if (png.size <= limit || edge <= 320) return { png, width: w, height: h };
       // Shrink by the square root of the overshoot — PNG size tracks pixel
       // count roughly — but never by less than a tenth, so this converges.

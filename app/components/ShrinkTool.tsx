@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Clipboard, Download, Trash2, Check, Loader2, ImagePlus, X } from "lucide-react";
 import {
-  DEFAULT_SHRINK, asPng, asPngUnder, extOf, renamed, shrink, zipOf,
+  DEFAULT_SHRINK, asLightPng, asPngUnder, extOf, renamed, shrink, zipOf,
   type ShrinkFormat, type ShrinkMode, type ShrinkResult, type ShrinkSettings,
 } from "@/lib/shrink";
 import { formatBytes } from "./ui";
@@ -119,13 +119,12 @@ export default function ShrinkTool() {
     if (!job.result) return;
     try {
       // The clipboard takes PNG and only PNG, and a PNG of a photo is many
-      // times the WebP. With a size ceiling set, the ceiling is what the
-      // person asked for — so the copy is scaled until the PNG fits it.
-      // Otherwise it is the picture as is, re-encoded losslessly.
+      // times the WebP. The copy is a palette PNG — lighter, still sharp —
+      // and with a size ceiling set it is also scaled until it fits.
       const st = store.read();
       const out = st.mode === "kb"
         ? await asPngUnder(job.result.blob, st.maxKb * 1024)
-        : { png: await asPng(job.result.blob), width: job.result.width, height: job.result.height };
+        : { png: await asLightPng(job.result.blob), width: job.result.width, height: job.result.height };
       await navigator.clipboard.write([new ClipboardItem({ "image/png": out.png })]);
       setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, copied: true } : j)));
       say(`คัดลอกแล้ว — วางเป็น PNG ${formatBytes(out.png.size)} · ${out.width}×${out.height}`);
@@ -295,7 +294,7 @@ export default function ShrinkTool() {
           >
             <Clipboard size={16} /> {done.length > 1 ? "คัดลอกรูปล่าสุด · วางได้เลย" : "คัดลอก · วางได้เลย"}
           </button>
-          <p className="shrink-fine">แชตรับรูปจากคลิปบอร์ดเป็น PNG เท่านั้น ขนาดที่วางจึงต่างจากไฟล์ {extOf(settings.format)} ด้านบน{settings.mode === "kb" ? " — ตอนคัดลอกจะย่อให้ PNG ไม่เกินที่ตั้งไว้" : ""} · ต้องการไฟล์เล็กจริงใช้ดาวน์โหลด</p>
+          <p className="shrink-fine">คัดลอก = วางเป็น PNG แบบเบา (แชตรับจากคลิปบอร์ดได้แค่ PNG) ยังชัดเท่าเดิม{settings.mode === "kb" ? " และไม่เกินที่ตั้งไว้" : ""} · ดาวน์โหลดได้ไฟล์ {extOf(settings.format)} ตามตัวเลขด้านบน</p>
           <div className="shrink-two">
             <button type="button" className="btn" disabled={done.length === 0} onClick={() => void downloadAll()}>
               <Download size={15} /> {done.length > 1 ? "ดาวน์โหลด ZIP" : "ดาวน์โหลด"}
