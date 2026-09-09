@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { Shell, loadShell } from "../../page";
+import { Shell, loadShell } from "../../shell";
 import { toolBySlug, toolKey } from "@/lib/tools";
 
 export const dynamic = "force-dynamic";

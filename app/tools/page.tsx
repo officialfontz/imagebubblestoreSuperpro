@@ -1,4 +1,4 @@
-import { Shell, loadShell } from "../page";
+import { Shell, loadShell } from "../shell";
 
 export const dynamic = "force-dynamic";
 

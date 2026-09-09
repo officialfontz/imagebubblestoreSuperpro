@@ -85,14 +85,18 @@ export default function ShrinkTool() {
     setJobs((prev) => {
       if (prev.some((j) => j.state === "working")) return prev;
       const next = prev.find((j) => j.state === "queued");
-      if (!next || inFlight.current.has(next.id)) return prev;
-      inFlight.current.add(next.id);
-      const file = next.file;
+      if (!next) return prev;
       const id = next.id;
-      void shrink(file, readSettings())
+      // StrictMode calls an updater twice. Both calls return the same state;
+      // only the first starts the work.
+      if (!inFlight.current.has(id)) {
+        inFlight.current.add(id);
+        const file = next.file;
+        void shrink(file, readSettings())
         .then((result) => setJobs((cur) => cur.map((j) => (j.id === id ? { ...j, state: "done", result } : j))))
         .catch(() => setJobs((cur) => cur.map((j) => (j.id === id ? { ...j, state: "failed", error: "เปิดรูปนี้ไม่ได้" } : j))))
-        .finally(() => { inFlight.current.delete(id); pump(); });
+          .finally(() => { inFlight.current.delete(id); pump(); });
+      }
       return prev.map((j) => (j.id === id ? { ...j, state: "working" } : j));
     });
   }
