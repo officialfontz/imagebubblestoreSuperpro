@@ -1012,7 +1012,7 @@
 .crop-ratios button[data-on="true"] i { opacity: 1; }
 
 /* ── Replies ──────────────────────────────────────────────────────────────── */
-.rp { gap: 12px; }
+.rp { gap: 12px; height: auto; min-height: 0; }
 .rp-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .rp-search { flex: 1 1 260px; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px; border-radius: 10px; background: var(--card); box-shadow: inset 0 0 0 1px var(--line); color: var(--ink-3); }
 .rp-search:focus-within { box-shadow: inset 0 0 0 1px var(--line-lit); }
@@ -1029,9 +1029,9 @@
 .rp-import > span { font-size: 12px; color: var(--ink-3); }
 .rp-import textarea { width: 100%; padding: 10px 12px; border-radius: 10px; resize: vertical; font: inherit; font-size: 13px; line-height: 1.6; color: var(--ink); background: var(--raised); border: none; outline: none; box-shadow: inset 0 0 0 1px var(--line); }
 .rp-import-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--ink-3); }
-.rp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; align-content: start; flex: 1; min-height: 0; overflow: auto; padding-bottom: 6px; }
+.rp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); grid-auto-rows: auto; gap: 10px; align-items: start; }
 .rp-empty { grid-column: 1 / -1; padding: 30px; text-align: center; color: var(--ink-4); font-size: 13px; }
-.rp-card { position: relative; display: flex; flex-direction: column; gap: 6px; padding: 12px 12px 12px; border-radius: 12px; background: var(--card); box-shadow: inset 0 0 0 1px var(--line); cursor: pointer; text-align: left; transition: transform 0.15s var(--ease), box-shadow 0.15s var(--ease); overflow: hidden; }
+.rp-card { position: relative; display: flex; flex-direction: column; gap: 6px; min-height: 96px; padding: 12px 12px 12px; border-radius: 12px; background: var(--card); box-shadow: inset 0 0 0 1px var(--line); cursor: pointer; text-align: left; transition: transform 0.15s var(--ease), box-shadow 0.15s var(--ease); overflow: hidden; }
 .rp-card:hover { box-shadow: inset 0 0 0 1px var(--line-lit); transform: translateY(-1px); }
 .rp-card:focus-visible { outline: 2px solid var(--violet-hi); outline-offset: 1px; }
 .rp-card[data-edit="true"] { cursor: default; transform: none; }
