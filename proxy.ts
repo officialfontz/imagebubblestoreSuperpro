@@ -37,7 +37,7 @@ const MAX_ENTRIES = 8_000;
 
 // Bearer-authenticated endpoints for the Bubble Capture desktop app. Listed
 // exactly, not by prefix: /api/png/* must stay behind the session cookie.
-const PWA_ASSETS = new Set(["/manifest.webmanifest", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png"]);
+const PWA_ASSETS = new Set(["/manifest.webmanifest", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png", "/logo.png"]);
 
 const BEARER_API = new Set(["/api/pair", "/api/me", "/api/capture", "/api/selftest", "/api/report"]);
 

@@ -979,3 +979,34 @@
 }
 .wm-caption:focus { box-shadow: inset 0 0 0 1px var(--line-lit); }
 .f-lbl small { font-weight: 400; color: var(--ink-4); text-transform: none; letter-spacing: 0; }
+
+/* ── Crop ─────────────────────────────────────────────────────────────────── */
+.crop-stage { position: relative; align-self: center; max-width: 100%; user-select: none; touch-action: none; border-radius: 10px; overflow: hidden; box-shadow: inset 0 0 0 1px var(--line); }
+.crop-stage img { display: block; max-width: 100%; max-height: min(60vh, 640px); width: auto; height: auto; pointer-events: none; }
+/* The shade is the crop rectangle; a huge outline paints everything outside it. */
+.crop-shade { position: absolute; outline: 9999px solid rgba(9, 6, 15, 0.62); }
+.crop-box[data-h="move"] { cursor: move; }
+.crop-box { position: absolute; inset: 0; box-shadow: 0 0 0 1.5px var(--violet-hi), 0 0 0 1px rgba(0,0,0,0.5) inset; }
+/* Thirds, for lining a product up. */
+.crop-box i { position: absolute; background: rgba(255, 255, 255, 0.28); pointer-events: none; }
+.crop-box i:nth-child(1) { left: 33.33%; top: 0; bottom: 0; width: 1px; }
+.crop-box i:nth-child(2) { left: 66.66%; top: 0; bottom: 0; width: 1px; }
+.crop-box i:nth-child(3) { top: 33.33%; left: 0; right: 0; height: 1px; }
+.crop-box i:nth-child(4) { top: 66.66%; left: 0; right: 0; height: 1px; }
+.crop-box b { position: absolute; width: 18px; height: 18px; border-radius: 5px; background: var(--violet-hi); box-shadow: 0 2px 6px rgba(0,0,0,0.5); touch-action: none; }
+.crop-box b[data-h="nw"] { left: -9px; top: -9px; cursor: nwse-resize; }
+.crop-box b[data-h="ne"] { right: -9px; top: -9px; cursor: nesw-resize; }
+.crop-box b[data-h="sw"] { left: -9px; bottom: -9px; cursor: nesw-resize; }
+.crop-box b[data-h="se"] { right: -9px; bottom: -9px; cursor: nwse-resize; }
+.crop-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: center; font-size: 11.5px; color: var(--ink-3); }
+.crop-meta b { color: var(--ink); font-weight: 600; max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.crop-x { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; color: var(--ink-3); }
+.crop-x:hover { color: var(--ink); background: var(--active); }
+.crop-ratios { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
+.crop-ratios button { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 6px 8px; border-radius: 10px; background: var(--card); box-shadow: inset 0 0 0 1px var(--line); color: var(--ink-2); }
+.crop-ratios button:hover { background: var(--hover); }
+.crop-ratios button i { display: block; height: 26px; border: 1.5px solid currentColor; border-radius: 3px; opacity: 0.6; }
+.crop-ratios button span { font-size: 12px; font-weight: 700; }
+.crop-ratios button small { font-size: 10px; color: var(--ink-4); }
+.crop-ratios button[data-on="true"] { color: var(--violet-hi); background: var(--violet-dim); box-shadow: inset 0 0 0 1px var(--line-lit); }
+.crop-ratios button[data-on="true"] i { opacity: 1; }

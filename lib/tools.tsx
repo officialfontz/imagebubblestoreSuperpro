@@ -38,7 +38,7 @@ export const toolSlug = (active: string) => (active.startsWith("tool:") ? active
 export const TOOL_DEFS: ToolDef[] = [
   { slug: "shrink", name: "ย่อรูป", blurb: "โยนรูปเข้ามา เลือกขนาดไม่เกินกี่ KB คัดลอกวางได้เลย", category: "image", Icon: Minimize2 },
   { slug: "stamp", name: "ใส่โลโก้ร้าน", blurb: "ลายน้ำหลายรูปทีเดียว จำตำแหน่งและความจาง", category: "image", Icon: Stamp },
-  { slug: "crop", name: "ครอปตามสัดส่วน", blurb: "1:1 · 4:5 · 16:9 สำหรับรูปสินค้าและโพสต์", category: "image", Icon: Crop },
+  { slug: "crop", name: "ครอปตามสัดส่วน", blurb: "1:1 · 4:5 · 16:9 ลากกรอบเอง สำหรับรูปสินค้าและโพสต์", category: "image", Icon: Crop },
   { slug: "bg", name: "ลบพื้นหลัง", blurb: "เร็ว ๆ นี้", category: "image", Icon: Eraser },
   { slug: "replace", name: "ค้นหา & แทนที่", blurb: "วางข้อความ ตั้งกฎหลายข้อ แทนที่ทีเดียว", category: "text", Icon: Replace },
   { slug: "template", name: "เทมเพลตส่งลูกค้า", blurb: "ข้อความยืนยันออเดอร์ เติมชื่อ/ราคาให้อัตโนมัติ", category: "text", Icon: MessageSquareText },
