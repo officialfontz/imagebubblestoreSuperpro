@@ -21,10 +21,12 @@ import {
 import type { VaultRole } from "@/lib/session";
 import { deleteCapture, loadCaptures, renameCapture, searchCaptures, setCaptureCategory } from "@/lib/capture-actions";
 import { ping } from "@/lib/ping";
-import Rail, { ALL, UNFILED, TRASH, TEXT_TOOL, CAPTURES, isCaptureView, captureStaffId } from "./Rail";
+import Rail, { ALL, UNFILED, TRASH, CAPTURES, isCaptureView, captureStaffId } from "./Rail";
+import ToolsHub from "./ToolsHub";
+import "./tools-registry";
+import { TOOLS_HUB, isToolView, toolBySlug, toolKey, toolSlug } from "@/lib/tools";
 import CapturesView from "./CapturesView";
 import StaffModal from "./StaffModal";
-import TextTool from "./TextTool";
 import ResizeDialog from "./ResizeDialog";
 import Tile from "./Tile";
 import Viewer from "./Viewer";
@@ -37,6 +39,8 @@ import {
 } from "./ui";
 
 type Props = {
+  /** The section to open with — a tool's key when the URL named one. */
+  initialActive?: string;
   initialData: VaultData;
   storage: StorageStatus;
   role: VaultRole;
@@ -94,7 +98,7 @@ function subscribeAlerts(fn: () => void) {
   return () => { alertListeners.delete(fn); window.removeEventListener("storage", fn); };
 }
 
-export default function VaultApp({ initialData, storage, role, initialCaptures, captureMonths }: Props) {
+export default function VaultApp({ initialData, storage, role, initialCaptures, captureMonths, initialActive }: Props) {
   const isOwner = role === "owner";
   const [albums, setAlbums] = useState<VaultAlbum[]>(initialData.albums);
   const [images, setImages] = useState<VaultImage[]>(initialData.images);
@@ -106,7 +110,22 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
   const [captureMonth, setCaptureMonth] = useState(() => monthKey(Date.now()));
   const [staffOpen, setStaffOpen] = useState(false);
   // A read-only team session has no library to land on.
-  const [active, setActive] = useState<string>(isOwner ? ALL : CAPTURES);
+  const [active, setActive] = useState<string>(initialActive ?? (isOwner ? ALL : CAPTURES));
+
+  // A tool has an address. Opening one rewrites the URL so it can be shared or
+  // bookmarked, and the back button walks out of it.
+  useEffect(() => {
+    const path = active === TOOLS_HUB ? "/tools" : toolSlug(active) ? `/tools/${toolSlug(active)}` : "/";
+    if (window.location.pathname !== path) window.history.pushState(null, "", path);
+  }, [active]);
+  useEffect(() => {
+    const onPop = () => {
+      const m = window.location.pathname.match(/^\/tools(?:\/([^/]+))?$/);
+      setActive(m ? (m[1] ? toolKey(m[1]) : TOOLS_HUB) : (isOwner ? ALL : CAPTURES));
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [isOwner]);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<Sort>("new");
   const [dense, setDense] = useState(false);
@@ -213,7 +232,9 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
   // ── Derived ─────────────────────────────────────────────────────────────────
   const inTrash = active === TRASH;
   // The text tool takes over the main column; none of the image chrome applies.
-  const inTextTool = active === TEXT_TOOL;
+  // Any tool takes over the main column the way the text tool always did.
+  const inTextTool = isToolView(active);
+  const activeTool = toolSlug(active) ? toolBySlug(toolSlug(active)!) : null;
   // Delivery proof does the same, and additionally has its own search, its own
   // viewer and its own month.
   const inCaptures = isCaptureView(active);
@@ -225,7 +246,7 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (active === TEXT_TOOL || isCaptureView(active)) return [];
+    if (isToolView(active) || isCaptureView(active)) return [];
     const list = images.filter((img) => {
       // Binned images appear in exactly one place, and nowhere else.
       if (Boolean(img.deletedAt) !== (active === TRASH)) return false;
@@ -419,7 +440,8 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
     active === ALL ? "รูปทั้งหมด"
     : active === UNFILED ? "ยังไม่จัดหมวด"
     : active === TRASH ? "ถังขยะ"
-    : active === TEXT_TOOL ? "ค้นหา & แทนที่"
+    : active === TOOLS_HUB ? "เครื่องมือ"
+    : activeTool ? activeTool.name
     : active === CAPTURES ? "หลักฐานส่งของ"
     : captureStaffMember ? `${captureStaffMember.emoji} ${captureStaffMember.name}`
     : captureStaff ? "หลักฐานส่งของ"
@@ -1046,7 +1068,11 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
             ? ({ "--tile": "132px", "--gap": "11px" } as React.CSSProperties)
             : undefined}
         >
-          {inTextTool ? <TextTool /> : inCaptures ? (
+          {inTextTool ? (
+            active === TOOLS_HUB || !activeTool?.component
+              ? <ToolsHub onOpen={setActive} />
+              : <activeTool.component />
+          ) : inCaptures ? (
             <CapturesView
               captures={captureList}
               searching={searching}

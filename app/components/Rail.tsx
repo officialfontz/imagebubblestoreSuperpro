@@ -2,11 +2,12 @@
 
 // ── Sidebar: brand, upload, collections, storage ─────────────────────────────
 
+import { TOOL_DEFS } from "./tools-registry";
+import { CATEGORY_LABEL, TOOLS_HUB, toolKey } from "@/lib/tools";
 import { useState } from "react";
 import {
-  Upload, Images, Inbox, Plus, Pencil, HardDrive, Cloud, Layers, LogOut, Trash2, Replace,
-  PackageCheck, Users, Eye,
-} from "lucide-react";
+  Upload, Images, Inbox, Plus, Pencil, HardDrive, Cloud, Layers, LogOut, Trash2, PackageCheck, Users, Eye,
+ Wrench } from "lucide-react";
 import type { VaultAlbum, VaultStaff } from "@/lib/types";
 import type { VaultRole } from "@/lib/session";
 import { signOut } from "@/lib/login-actions";
@@ -15,7 +16,7 @@ import { formatBytes } from "./ui";
 export const ALL = "__all__";
 export const UNFILED = "__unfiled__";
 export const TRASH = "__trash__";
-export const TEXT_TOOL = "__text__";
+export const TEXT_TOOL = "tool:replace";
 /** Delivery proof from every staff member. */
 export const CAPTURES = "__captures__";
 /** One staff member's proof. Prefixed so it can never collide with an album id. */
@@ -226,20 +227,40 @@ export default function Rail({
         )}
       </nav>
 
-      {isOwner && (
-        <nav className="rail-tools">
-          <div className="nav-label">เครื่องมือ</div>
-          <button
-            type="button"
-            className="nav-item"
-            data-active={active === TEXT_TOOL}
-            onClick={() => onSelect(TEXT_TOOL)}
-          >
-            <span className="nav-icon"><Replace size={16} /></span>
-            <span className="nav-name">ค้นหา &amp; แทนที่</span>
-          </button>
-        </nav>
-      )}
+      {/* Every tool, from the one list. Read-only staff get these too: nothing
+          here can change the vault. */}
+      <nav className="rail-tools">
+        <button
+          type="button"
+          className="nav-item"
+          data-active={active === TOOLS_HUB}
+          onClick={() => onSelect(TOOLS_HUB)}
+        >
+          <span className="nav-icon"><Wrench size={16} /></span>
+          <span className="nav-name">เครื่องมือทั้งหมด</span>
+        </button>
+        {(["image", "text", "shop"] as const).map((cat) => {
+          const ready = TOOL_DEFS.filter((t) => t.category === cat && t.component);
+          if (ready.length === 0) return null;
+          return (
+            <div key={cat}>
+              <div className="nav-label">เครื่องมือ · {CATEGORY_LABEL[cat]}</div>
+              {ready.map((t) => (
+                <button
+                  key={t.slug}
+                  type="button"
+                  className="nav-item"
+                  data-active={active === toolKey(t.slug)}
+                  onClick={() => onSelect(toolKey(t.slug))}
+                >
+                  <span className="nav-icon"><t.Icon size={16} /></span>
+                  <span className="nav-name">{t.name}</span>
+                </button>
+              ))}
+            </div>
+          );
+        })}
+      </nav>
 
       <div className="rail-foot">
         {!isOwner && (

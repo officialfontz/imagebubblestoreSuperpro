@@ -7,31 +7,33 @@ import VaultApp from "./components/VaultApp";
 
 export const dynamic = "force-dynamic";
 
-export default async function Page() {
+/** Everything the shell needs, loaded once for every route that shows it. */
+export async function loadShell() {
   // proxy.ts already rejected unauthenticated requests at the edge. This is the
   // second layer, so a mis-scoped matcher can never expose the catalog.
   const role = await requireAuth();
-
   const [data, captures, months] = await Promise.all([
     loadVault(),
-    // Only the current month is sent down. Older proof is a click (the month
-    // picker) or a search away, and shipping a year of it would undo the whole
-    // reason the catalogs are split.
     loadCaptureMonth(currentMonth()).catch(() => null),
     listCaptureMonths().catch(() => [] as string[]),
   ]);
-
-  // Expiry rides on traffic the app already gets; never awaited, so a slow
-  // sweep can never hold up a page load.
   scheduleCaptureSweep();
+  return { role, data, captures, months };
+}
 
+export function Shell({ shell, initialActive }: { shell: Awaited<ReturnType<typeof loadShell>>; initialActive?: string }) {
   return (
     <VaultApp
-      initialData={data}
+      initialData={shell.data}
       storage={storageStatus()}
-      role={role}
-      initialCaptures={captures?.captures ?? []}
-      captureMonths={months}
+      role={shell.role}
+      initialCaptures={shell.captures?.captures ?? []}
+      captureMonths={shell.months}
+      initialActive={initialActive}
     />
   );
+}
+
+export default async function Page() {
+  return <Shell shell={await loadShell()} />;
 }
