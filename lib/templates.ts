@@ -17,6 +17,8 @@ export type ReplySettings = {
   values: Record<string, string>;
   /** ค่ะ or ครับ — fills {ค่ะ} and {คะ}. */
   ending: "f" | "m";
+  /** How many times each card was copied, by id — the busiest float up. */
+  uses?: Record<string, number>;
 };
 
 const uid = () => Math.random().toString(36).slice(2);
