@@ -923,6 +923,7 @@
 .shrink-more { padding: 12px; border-radius: 10px; font-size: 12px; color: var(--ink-3); border: 1px dashed var(--line-2); }
 .shrink-more:hover { color: var(--ink-2); background: var(--hover); }
 .shrink-side { display: flex; flex-direction: column; gap: 16px; }
+.seg--text button { width: auto; padding: 0 12px; font-size: 12.5px; white-space: nowrap; }
 .seg--full { width: 100%; margin-top: 6px; }
 .seg--full button { flex: 1; }
 .shrink-big { display: flex; align-items: baseline; gap: 6px; margin-top: 8px; padding: 6px 2px 8px; border-bottom: 1.5px solid var(--line-lit); }
@@ -1019,9 +1020,12 @@
 .rp-search input { flex: 1; min-width: 0; font: inherit; font-size: 13.5px; color: var(--ink); background: none; border: none; outline: none; }
 .rp-search input::placeholder { color: var(--ink-4); }
 .rp-search button { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; color: var(--ink-3); }
-.rp-bar .seg { flex: none; }
-.rp-bar .seg button { white-space: nowrap; }
-.rp-bar .seg button small { margin-left: 5px; color: var(--ink-4); font-size: 10px; }
+.rp-groups { display: flex; gap: 6px; flex-wrap: wrap; }
+.rp-groups button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 13px; border-radius: 99px; font-size: 12.5px; color: var(--ink-2); background: var(--card); box-shadow: inset 0 0 0 1px var(--line); white-space: nowrap; }
+.rp-groups button:hover { background: var(--hover); color: var(--ink); }
+.rp-groups button[data-on="true"] { color: var(--violet-hi); background: var(--violet-dim); box-shadow: inset 0 0 0 1px var(--line-lit); font-weight: 600; }
+.rp-groups button small { color: var(--ink-4); font-size: 10.5px; font-weight: 500; }
+.rp-groups button[data-on="true"] small { color: var(--violet-hi); }
 .rp-acts { display: flex; gap: 6px; }
 .rp-acts .btn[data-on="true"] { color: var(--violet-hi); background: var(--violet-dim); }
 .rp-note { font-size: 12.5px; color: var(--ok); }
@@ -1029,20 +1033,20 @@
 .rp-import > span { font-size: 12px; color: var(--ink-3); }
 .rp-import textarea { width: 100%; padding: 10px 12px; border-radius: 10px; resize: vertical; font: inherit; font-size: 13px; line-height: 1.6; color: var(--ink); background: var(--raised); border: none; outline: none; box-shadow: inset 0 0 0 1px var(--line); }
 .rp-import-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--ink-3); }
-.rp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); grid-auto-rows: auto; gap: 10px; align-items: start; }
+.rp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); grid-auto-rows: 1fr; gap: 10px; align-items: stretch; }
 .rp-empty { grid-column: 1 / -1; padding: 30px; text-align: center; color: var(--ink-4); font-size: 13px; }
-.rp-card { position: relative; display: flex; flex-direction: column; gap: 6px; min-height: 96px; padding: 12px 12px 12px; border-radius: 12px; background: var(--card); box-shadow: inset 0 0 0 1px var(--line); cursor: pointer; text-align: left; transition: transform 0.15s var(--ease), box-shadow 0.15s var(--ease); overflow: hidden; }
+.rp-card { position: relative; display: flex; flex-direction: column; gap: 8px; min-height: 148px; padding: 12px 14px 14px; border-radius: 12px; background: var(--card); box-shadow: inset 0 0 0 1px var(--line); cursor: pointer; text-align: left; transition: transform 0.15s var(--ease), box-shadow 0.15s var(--ease); overflow: hidden; }
 .rp-card:hover { box-shadow: inset 0 0 0 1px var(--line-lit); transform: translateY(-1px); }
 .rp-card:focus-visible { outline: 2px solid var(--violet-hi); outline-offset: 1px; }
 .rp-card[data-edit="true"] { cursor: default; transform: none; }
-.rp-card header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-right: 26px; }
-.rp-card header b { font-size: 13px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rp-card header { display: flex; align-items: center; gap: 8px; }
+.rp-card header b { flex: 1; min-width: 0; font-size: 13px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rp-chip { flex: none; font-size: 10px; padding: 2px 7px; border-radius: 99px; color: var(--ink-3); background: rgba(255, 255, 255, 0.05); box-shadow: inset 0 0 0 1px var(--line); }
 .rp-card[data-group="gamepass"] .rp-chip { color: var(--violet-hi); background: var(--violet-dim); }
 .rp-card[data-group="robux"] .rp-chip { color: var(--ok); background: rgba(52, 211, 153, 0.12); }
-.rp-card p { font-size: 12.5px; line-height: 1.6; color: var(--ink-2); white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
+.rp-card p { font-size: 12.5px; line-height: 1.6; color: var(--ink-2); white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .rp-card[data-open="true"] p { -webkit-line-clamp: unset; }
-.rp-card kbd { position: absolute; top: 10px; right: 10px; font: 600 10px ui-monospace, monospace; color: var(--ink-4); background: rgba(9, 6, 15, 0.6); padding: 2px 6px; border-radius: 4px; }
+.rp-card kbd { flex: none; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 5px; font: 600 10.5px ui-monospace, monospace; color: var(--violet-hi); background: var(--violet-dim); box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.3); }
 .rp-done { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 13px; font-weight: 650; color: #fff; background: rgba(52, 211, 153, 0.92); opacity: 0; pointer-events: none; transition: opacity 0.15s; }
 .rp-card[data-copied="true"] .rp-done { opacity: 1; }
 .rp-card[data-copied="true"] { box-shadow: inset 0 0 0 1.5px var(--ok); }

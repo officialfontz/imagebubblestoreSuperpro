@@ -105,14 +105,6 @@ export default function TemplateTool() {
           />
           {q && <button type="button" onClick={() => setQ("")} aria-label="ล้าง"><X size={13} /></button>}
         </label>
-        <div className="seg" role="radiogroup">
-          {(["all", ...GROUPS] as Filter[]).map((g) => (
-            <button key={g} type="button" data-on={filter === g} onClick={() => setFilter(g)}>
-              {g === "all" ? "ทั้งหมด" : GROUP_LABEL[g]}
-              <small className="tnum">{g === "all" ? s.replies.length : s.replies.filter((r) => r.group === g).length}</small>
-            </button>
-          ))}
-        </div>
         <div className="rp-acts">
           <button type="button" className="btn btn--sm" onClick={() => setImportText("")}><ClipboardPaste size={13} /> วางจากโน้ต</button>
           <button type="button" className="btn btn--sm" onClick={add}><Plus size={13} /> เพิ่ม</button>
@@ -122,6 +114,15 @@ export default function TemplateTool() {
         </div>
       </div>
 
+        <div className="rp-groups" role="radiogroup">
+          {(["all", ...GROUPS] as Filter[]).map((g) => (
+            <button key={g} type="button" data-on={filter === g} onClick={() => setFilter(g)}>
+              {g === "all" ? "ทั้งหมด" : GROUP_LABEL[g]}
+              <small className="tnum">{g === "all" ? s.replies.length : s.replies.filter((r) => r.group === g).length}</small>
+            </button>
+          ))}
+        </div>
+
       {note && <p className="rp-note">{note}</p>}
 
       {importText !== null && (
@@ -130,7 +131,7 @@ export default function TemplateTool() {
           <span>เว้นบรรทัดว่างระหว่างข้อความ แต่ละก้อนจะกลายเป็นการ์ด · :purple_heart: แบบนี้จะแปลงเป็นอีโมจิให้</span>
           <textarea value={importText} onChange={(e) => setImportText(e.target.value)} rows={8} autoFocus placeholder="สวัสดีครับ Bubble Shop…&#10;&#10;📦รับออเดอร์แล้วครับ…" />
           <div className="rp-import-foot">
-            <div className="seg" role="radiogroup">
+            <div className="seg seg--text" role="radiogroup">
               {GROUPS.map((g) => <button key={g} type="button" data-on={importGroup === g} onClick={() => setImportGroup(g)}>{GROUP_LABEL[g]}</button>)}
             </div>
             <span className="tnum">{splitNotepad(importText, importGroup).length} การ์ด</span>
@@ -153,7 +154,6 @@ export default function TemplateTool() {
               onClick={() => tap(r)}
               onKeyDown={(e) => { if (!editing && (e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) { e.preventDefault(); tap(r); } }}
             >
-              {i < 9 && !editing && <kbd>{i + 1}</kbd>}
               {editing ? (
                 <div className="rp-edit" onClick={(e) => e.stopPropagation()}>
                   <div className="rp-edit-head">
@@ -173,6 +173,7 @@ export default function TemplateTool() {
               ) : (
                 <>
                   <header>
+                    {i < 9 && <kbd>{i + 1}</kbd>}
                     <b>{r.name}</b>
                     <span className="rp-chip">{GROUP_LABEL[r.group]}{fields.length ? ` · ${fields.length} ช่อง` : ""}</span>
                   </header>
@@ -203,7 +204,7 @@ export default function TemplateTool() {
       <div className="tool-foot rp-foot">
         <span className="rp-hint">คลิกการ์ด = คัดลอก · เลข 1–9 = คัดลอกใบนั้น · Esc = ล้างค้นหา</span>
         <span style={{ flex: 1 }} />
-        <div className="seg" role="radiogroup" title="คำลงท้ายสำหรับ {ค่ะ} {คะ}">
+        <div className="seg seg--text" role="radiogroup" title="คำลงท้ายสำหรับ {ค่ะ} {คะ}">
           <button type="button" data-on={s.ending === "m"} onClick={() => store.patch({ ending: "m" })}>ครับ</button>
           <button type="button" data-on={s.ending === "f"} onClick={() => store.patch({ ending: "f" })}>ค่ะ</button>
         </div>
