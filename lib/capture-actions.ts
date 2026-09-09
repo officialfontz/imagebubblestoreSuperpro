@@ -131,15 +131,23 @@ export async function createPairingCode(
  * a few hundred bytes or nothing. `total` lets the client notice a deletion it
  * cannot see in a delta and fall back to a full load.
  */
+export type StaffQueue = { id: string; pending: number; failed: number; at: number };
+
 export async function loadCaptures(
   month: string,
   since?: number,
-): Promise<{ captures: VaultImage[]; total: number; partial: boolean }> {
+): Promise<{ captures: VaultImage[]; total: number; partial: boolean; queues: StaffQueue[] }> {
   await requireAuth();
-  const data = await loadCaptureMonth(month);
+  const [data, vault] = await Promise.all([loadCaptureMonth(month), loadVault()]);
+  // Every device's queue depth, as last reported. A few bytes per person, on a
+  // poll that is otherwise nearly empty — and the only way the owner learns
+  // that proof is sitting on a staff PC instead of here.
+  const queues: StaffQueue[] = vault.staff
+    .filter((m) => m.queue && !m.revokedAt)
+    .map((m) => ({ id: m.id, ...m.queue! }));
   const total = data.captures.length;
-  if (since === undefined) return { captures: data.captures, total, partial: false };
-  return { captures: data.captures.filter((c) => c.createdAt > since), total, partial: true };
+  if (since === undefined) return { captures: data.captures, total, partial: false, queues };
+  return { captures: data.captures.filter((c) => c.createdAt > since), total, partial: true, queues };
 }
 
 /**

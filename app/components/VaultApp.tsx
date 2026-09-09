@@ -149,6 +149,37 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
     }
   }, []);
 
+  /** Staff whose stuck queue has already been announced, with when. One line
+   *  an hour per person is a warning; one every four seconds is a siren. */
+  const stuckSaid = useRef<Map<string, number>>(new Map());
+
+  const applyQueues = useCallback((queues: { id: string; pending: number; failed: number; at: number }[]) => {
+    if (queues.length === 0) return;
+    setStaff((prev) => prev.map((m) => {
+      const q = queues.find((x) => x.id === m.id);
+      if (!q) return m;
+      const same = m.queue && m.queue.pending === q.pending && m.queue.failed === q.failed && m.queue.at === q.at;
+      return same ? m : { ...m, queue: { pending: q.pending, failed: q.failed, at: q.at } };
+    }));
+    if (!alerts) return;
+    const now = Date.now();
+    for (const q of queues) {
+      // Pending is normal for a few seconds; it is news after ten minutes.
+      const stuck = q.failed > 0 || (q.pending > 0 && now - q.at > 10 * 60_000);
+      if (!stuck) continue;
+      const last = stuckSaid.current.get(q.id) ?? 0;
+      if (now - last < 60 * 60_000) continue;
+      stuckSaid.current.set(q.id, now);
+      const who = staff.find((m) => m.id === q.id);
+      say(
+        `${who ? `${who.emoji} ${who.name}` : "ทีมงาน"} มีรูปค้างในเครื่อง ${q.failed > 0 ? `ส่งไม่ผ่าน ${q.failed}` : `รอส่ง ${q.pending}`} ใบ`,
+        "error",
+        8000,
+      );
+      ping();
+    }
+  }, [alerts, staff, say]);
+
   /** Ids already on screen, so a refresh can tell what is actually new. */
   const seenCaptures = useRef<Set<string>>(new Set(initialCaptures.map((c) => c.id)));
   /** Arrivals nobody has looked at yet — shown on the tab title while hidden. */
@@ -307,9 +338,10 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
         captureCount.current = current.captures.length;
       }
       if (alerts) announce(fresh);
+      applyQueues(current.queues);
     }
     if (wide) setArchive(wide);
-  }, [archive, alerts, announce]);
+  }, [archive, alerts, announce, applyQueues]);
 
   // Fetch the archive the first time a search runs, and refresh it whenever the
   // query changes afterwards — a snapshot taken once per session went stale the

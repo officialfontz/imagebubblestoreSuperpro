@@ -173,6 +173,12 @@ export default function StaffModal({ staff, onClose, onChanged, say, ask, confir
 
                 <div className="staff-side">
                   <span>{member.lastSeenAt ? `เห็นล่าสุด${timeAgo(member.lastSeenAt)}` : "—"}</span>
+                  {member.queue && (member.queue.failed > 0 || member.queue.pending > 0) && (
+                    <span className={`chip ${member.queue.failed > 0 ? "chip--off" : "chip--local"}`} title="รูปที่ยังอยู่ในเครื่องของคนนี้ ยังไม่ถึง Vault">
+                      {member.queue.failed > 0 ? `ส่งไม่ผ่าน ${member.queue.failed}` : `ค้างส่ง ${member.queue.pending}`}
+                      {member.queue.failed > 0 && member.queue.pending > 0 ? ` · ค้าง ${member.queue.pending}` : ""}
+                    </span>
+                  )}
                   {test ? (
                     <button
                       type="button"

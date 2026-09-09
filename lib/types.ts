@@ -42,6 +42,10 @@ export type VaultStaff = {
   pairing?: { hash: string; expiresAt: number };
   revokedAt?: number;
   lastSeenAt?: number;
+  /** What the device's own upload queue looked like the last time it called.
+   *  `failed` are captures the server refused for good; `pending` are still
+   *  being retried. Either above zero is proof sitting on a staff PC. */
+  queue?: { pending: number; failed: number; at: number };
   deviceName?: string;
   platform?: "windows" | "macos";
   appVersion?: string;

@@ -72,7 +72,14 @@ export async function authenticateStaff(req: Request): Promise<AuthResult> {
   };
 }
 
-export type DeviceInfo = { name?: string; platform?: "windows" | "macos"; appVersion?: string };
+export type DeviceInfo = {
+  name?: string;
+  platform?: "windows" | "macos";
+  appVersion?: string;
+  /** Queue depth on the device at the time of the call. */
+  pending?: number;
+  failed?: number;
+};
 
 /**
  * Reads the X-Bubble-Device header the app sends with every request.
@@ -93,7 +100,10 @@ export function readDeviceHeader(req: Request): DeviceInfo {
     if (typeof parsed !== "object" || parsed === null) return {};
     const d = parsed as Record<string, unknown>;
     const platform = d.platform === "windows" || d.platform === "macos" ? d.platform : undefined;
+    const count = (v: unknown) => (typeof v === "number" && v >= 0 ? Math.min(9999, Math.floor(v)) : undefined);
     return {
+      ...(count(d.pending) !== undefined ? { pending: count(d.pending) } : {}),
+      ...(count(d.failed) !== undefined ? { failed: count(d.failed) } : {}),
       ...(typeof d.name === "string" && d.name ? { name: d.name.slice(0, 60) } : {}),
       ...(platform ? { platform } : {}),
       ...(typeof d.appVersion === "string" && d.appVersion ? { appVersion: d.appVersion.slice(0, 20) } : {}),
@@ -119,7 +129,14 @@ export async function touchLastSeen(staffId: string, device: DeviceInfo): Promis
     (device.platform && device.platform !== current.platform) ||
     (device.appVersion && device.appVersion !== current.appVersion);
 
-  if (!stale && !deviceChanged) return;
+  // The queue is written whenever it *changes*, throttle or not: "3 stuck"
+  // arriving ten minutes late is the owner finding out ten minutes late.
+  const queueChanged =
+    device.pending !== undefined &&
+    device.failed !== undefined &&
+    (current.queue?.pending !== device.pending || current.queue?.failed !== device.failed);
+
+  if (!stale && !deviceChanged && !queueChanged) return;
 
   await updateVault((data) => {
     const staff = data.staff.find((s) => s.id === staffId);
@@ -128,6 +145,9 @@ export async function touchLastSeen(staffId: string, device: DeviceInfo): Promis
       if (device.name) staff.deviceName = device.name;
       if (device.platform) staff.platform = device.platform;
       if (device.appVersion) staff.appVersion = device.appVersion;
+      if (device.pending !== undefined && device.failed !== undefined) {
+        staff.queue = { pending: device.pending, failed: device.failed, at: now };
+      }
     }
     return { next: data, result: { ok: true } };
   });

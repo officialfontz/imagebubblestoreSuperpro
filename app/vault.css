@@ -863,3 +863,8 @@
 
 .seg--cat { margin-top: 2px; }
 .seg--cat button { padding: 0 10px; font-size: 12px; }
+
+/* Proof sitting on a staff PC instead of here. Amber while it is still being
+   retried, red once the server has refused it for good. */
+.nav-stuck { width: 7px; height: 7px; border-radius: 99px; flex: none; margin-right: 6px; background: var(--warn); box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.16); }
+.nav-stuck[data-bad="true"] { background: var(--danger); box-shadow: 0 0 0 3px rgba(251, 113, 133, 0.16); }

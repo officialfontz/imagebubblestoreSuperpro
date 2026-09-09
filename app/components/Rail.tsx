@@ -212,6 +212,14 @@ export default function Rail({
             >
               <span className="nav-icon" aria-hidden>{member.emoji}</span>
               <span className="nav-name">{member.name}</span>
+              {member.queue && (member.queue.failed > 0 || member.queue.pending > 0) && (
+                <span
+                  className="nav-stuck"
+                  data-bad={member.queue.failed > 0}
+                  title={member.queue.failed > 0 ? `ส่งไม่ผ่าน ${member.queue.failed} รูป — อยู่ในเครื่องของ ${member.name}` : `ค้างส่ง ${member.queue.pending} รูป`}
+                  aria-label="มีรูปค้างในเครื่อง"
+                />
+              )}
               <span className="nav-count tnum">{captureCounts.byStaff[member.id] ?? 0}</span>
             </button>
           ))

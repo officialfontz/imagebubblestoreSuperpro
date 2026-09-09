@@ -108,6 +108,9 @@ function normalizeStaff(raw: unknown): VaultStaff | null {
       : {}),
     ...(num(raw.revokedAt) > 0 ? { revokedAt: num(raw.revokedAt) } : {}),
     ...(num(raw.lastSeenAt) > 0 ? { lastSeenAt: num(raw.lastSeenAt) } : {}),
+    ...(isRecord(raw.queue) && typeof raw.queue.at === "number"
+      ? { queue: { pending: Number(raw.queue.pending) || 0, failed: Number(raw.queue.failed) || 0, at: raw.queue.at } }
+      : {}),
     ...(str(raw.deviceName) ? { deviceName: str(raw.deviceName).slice(0, 60) } : {}),
     ...(platform ? { platform } : {}),
     ...(str(raw.appVersion) ? { appVersion: str(raw.appVersion).slice(0, 20) } : {}),
