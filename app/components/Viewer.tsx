@@ -7,7 +7,8 @@ import { useEffect } from "react";
 import {
   X, ChevronLeft, ChevronRight, Copy, Pencil, Trash2, ExternalLink, FolderInput, Check, Clock,
 } from "lucide-react";
-import type { VaultImage, VaultAlbum, CopyFormat } from "@/lib/types";
+import type { VaultImage, VaultAlbum, CopyFormat , CaptureCategory } from "@/lib/types";
+import { CAPTURE_CATEGORIES, CATEGORY_LABEL } from "@/lib/types";
 import { formatLink, resizedUrl, RESIZE_WIDTHS } from "@/lib/types";
 import { CAPTURE_RETENTION_DAYS } from "@/lib/types";
 import { daysLeft, formatBytes, timeAgo } from "./ui";
@@ -47,6 +48,7 @@ type Props = {
     deviceName?: string;
     /** Read-only staff sessions get the same panel without the edit controls. */
     canEdit: boolean;
+    onSetCategory?: (category: CaptureCategory) => void;
   };
 };
 
@@ -153,6 +155,25 @@ export default function Viewer({
                   <div className="fact">
                     <dt>ชื่อลูกค้า</dt>
                     <dd>{image.customer ?? "—"}</dd>
+                  </div>
+                  <div className="fact" style={{ gridColumn: "span 2" }}>
+                    <dt>หมวด</dt>
+                    <dd>
+                      {capture.canEdit && capture.onSetCategory ? (
+                        <div className="seg seg--cat" role="group" aria-label="หมวด">
+                          {CAPTURE_CATEGORIES.map((key) => (
+                            <button
+                              key={key}
+                              type="button"
+                              data-on={image.category === key}
+                              onClick={() => capture.onSetCategory?.(key)}
+                            >
+                              {CATEGORY_LABEL[key]}
+                            </button>
+                          ))}
+                        </div>
+                      ) : image.category ? CATEGORY_LABEL[image.category] : "ไม่ระบุ"}
+                    </dd>
                   </div>
                   <div className="fact" style={{ gridColumn: "span 2" }}>
                     <dt>เวลาแคป</dt>

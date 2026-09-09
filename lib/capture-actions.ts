@@ -16,7 +16,8 @@ import {
   monthOf, putCaptureSidecar, recentMonths, shopDay, updateCaptureMonth,
 } from "./captures";
 import type { ActionResult } from "./actions";
-import type { VaultImage, VaultStaff } from "./types";
+import type { CaptureCategory, VaultImage, VaultStaff } from "./types";
+import { isCaptureCategory } from "./types";
 
 // ── Team ──────────────────────────────────────────────────────────────────────
 
@@ -167,6 +168,28 @@ export async function renameCapture(id: string, month: string, customer: string)
   // The sidecar is what a rebuild reads. Leaving it stale would restore the
   // typo this action exists to fix.
   await putCaptureSidecar(res.updated).catch((e) => console.error("sidecar rename failed:", e));
+  return { ok: true };
+}
+
+/** Re-files a capture under a different kind of order — a mis-tap on the card
+ *  is a one-second mistake and should be a one-second fix. */
+export async function setCaptureCategory(
+  id: string,
+  month: string,
+  category: CaptureCategory,
+): Promise<ActionResult> {
+  await requireOwner();
+  if (!isCaptureCategory(category)) return { ok: false, error: "หมวดไม่ถูกต้อง" };
+
+  const res = await updateCaptureMonth<{ updated: VaultImage | null }>(month, (data) => {
+    const capture = data.captures.find((c) => c.id === id);
+    if (capture) capture.category = category;
+    return { next: data, result: { updated: capture ?? null } };
+  });
+  if ("error" in res) return { ok: false, error: res.error };
+  if (!res.updated) return { ok: false, error: "ไม่พบหลักฐานนี้" };
+
+  await putCaptureSidecar(res.updated).catch((e) => console.error("sidecar category failed:", e));
   return { ok: true };
 }
 

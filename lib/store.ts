@@ -11,6 +11,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { emptyVault, type VaultData, type VaultAlbum, type VaultImage, type VaultStaff } from "./types";
+import { isCaptureCategory } from "./types";
 import { getDriver, getCatalog, putCatalog } from "./storage";
 
 export const DATA_DIR   = process.env.DATA_DIR ?? path.join(process.cwd(), "data");
@@ -78,6 +79,7 @@ export function normalizeImage(raw: unknown): VaultImage | null {
     ...(raw.kind === "capture" ? { kind: "capture" as const } : {}),
     ...(typeof raw.uploader === "string" && raw.uploader ? { uploader: raw.uploader } : {}),
     ...(typeof raw.customer === "string" && raw.customer ? { customer: raw.customer.slice(0, 60) } : {}),
+    ...(isCaptureCategory(raw.category) ? { category: raw.category } : {}),
     ...(typeof raw.capturedAt === "number" && raw.capturedAt > 0 ? { capturedAt: raw.capturedAt } : {}),
     ...(typeof raw.clientId === "string" && raw.clientId ? { clientId: raw.clientId.slice(0, 64) } : {}),
     ...(/^\d{4}-\d{2}$/.test(str(raw.month)) ? { month: str(raw.month) } : {}),

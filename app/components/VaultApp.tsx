@@ -10,7 +10,7 @@ import {
   ArrowUpDown, LayoutGrid, Grid2x2, Check, ImageOff, Sparkles, Inbox, Shrink, Undo2, Plus,
   ImageDown, Minimize2, Calendar, Bell, BellOff,
 } from "lucide-react";
-import type { VaultData, VaultImage, VaultAlbum, VaultStaff, CopyFormat } from "@/lib/types";
+import type { VaultData, VaultImage, VaultAlbum, VaultStaff, CopyFormat, CaptureCategory } from "@/lib/types";
 import { formatLink, resizedUrl, RESIZE_WIDTHS } from "@/lib/types";
 import type { StorageStatus } from "@/lib/storage";
 import {
@@ -19,7 +19,7 @@ import {
   createVaultAlbum, updateVaultAlbum, deleteVaultAlbum,
 } from "@/lib/actions";
 import type { VaultRole } from "@/lib/session";
-import { deleteCapture, loadCaptures, renameCapture, searchCaptures } from "@/lib/capture-actions";
+import { deleteCapture, loadCaptures, renameCapture, searchCaptures, setCaptureCategory } from "@/lib/capture-actions";
 import { ping } from "@/lib/ping";
 import Rail, { ALL, UNFILED, TRASH, TEXT_TOOL, CAPTURES, isCaptureView, captureStaffId } from "./Rail";
 import CapturesView from "./CapturesView";
@@ -804,6 +804,20 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
     });
   }, [guard, patchCapture, say]);
 
+  const changeCaptureCategory = useCallback((capture: VaultImage, category: CaptureCategory) => {
+    if (capture.category === category) return;
+    const before = { category: capture.category };
+    patchCapture(capture.id, { category });
+    void guard(
+      () => setCaptureCategory(capture.id, monthOfCapture(capture), category),
+      () => patchCapture(capture.id, before),
+    ).then((res) => {
+      if (!res || res.ok) return;
+      patchCapture(capture.id, before);
+      say(res.error, "error");
+    });
+  }, [guard, patchCapture, say]);
+
   const askDeleteCapture = useCallback((capture: VaultImage) => {
     setConfirm({
       title: `ลบหลักฐานของ “${capture.customer ?? capture.name}”?`,
@@ -992,6 +1006,7 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
               onCopy={(capture, format, width) => void copyOne(capture, format, width)}
               onRename={askRenameCapture}
               onDelete={askDeleteCapture}
+              onSetCategory={changeCaptureCategory}
               onOpenStaff={() => setStaffOpen(true)}
             />
           ) : <>

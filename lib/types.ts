@@ -92,6 +92,9 @@ export type VaultImage = {
   uploader?: string;
   /** The customer's in-game name — the only thing a capture is filed under. */
   customer?: string;
+  /** What was delivered. Picked by the sender with one tap; absent on captures
+   *  from before the field existed, which the UI files as "อื่น ๆ". */
+  category?: CaptureCategory;
   /** Device clock at the moment of capture, which can precede createdAt by
    *  hours if the upload sat in an offline queue. */
   capturedAt?: number;
@@ -182,4 +185,21 @@ export function formatLink(format: CopyFormat, url: string, name: string): strin
     case "bbcode":   return `[img]${url}[/img]`;
     default:         return url;
   }
+}
+
+// ── What a delivery was ───────────────────────────────────────────────────────
+// Three kinds of order, one tap each. The list is closed on purpose: a free-text
+// field would give the shop "gamepass", "Game pass" and "GP" within a week, and
+// the whole point is that the web can file them apart without anyone tidying.
+export const CAPTURE_CATEGORIES = ["gamepass", "robux", "farm"] as const;
+export type CaptureCategory = (typeof CAPTURE_CATEGORIES)[number];
+
+export const CATEGORY_LABEL: Record<CaptureCategory, string> = {
+  gamepass: "Game Pass",
+  robux: "Robux",
+  farm: "ฟาร์ม",
+};
+
+export function isCaptureCategory(v: unknown): v is CaptureCategory {
+  return typeof v === "string" && (CAPTURE_CATEGORIES as readonly string[]).includes(v);
 }

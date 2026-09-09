@@ -7,6 +7,7 @@
 
 import { Maximize2 } from "lucide-react";
 import type { VaultImage, VaultStaff } from "@/lib/types";
+import { CATEGORY_LABEL } from "@/lib/types";
 import { resizedUrl } from "@/lib/types";
 import { clockTime } from "./ui";
 
@@ -61,6 +62,9 @@ export default function CaptureTile({ capture, staff, canResize, onOpen }: Props
             <span aria-hidden>{staff?.emoji ?? "❓"}</span>
             {staff?.name ?? "ไม่ทราบผู้ส่ง"}
           </span>
+          {capture.category && (
+            <span className="chip chip--cat" data-cat={capture.category}>{CATEGORY_LABEL[capture.category]}</span>
+          )}
           <span className="tnum">{clockTime(when)} น.</span>
         </div>
       </figcaption>

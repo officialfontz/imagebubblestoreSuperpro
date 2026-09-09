@@ -837,3 +837,29 @@
   font-family: var(--font-mono), monospace; font-size: 10.5px;
   padding: 1px 4px; border-radius: 4px; background: rgba(0,0,0,0.3);
 }
+
+/* ── Capture categories ──────────────────────────────────────────────────── */
+/* Three kinds of order, each its own hue, so a day of proof reads at a glance
+   without anyone opening a tile. */
+.chip--cat[data-cat="gamepass"] { background: rgba(56, 189, 248, 0.14); color: #7dd3fc; }
+.chip--cat[data-cat="robux"]    { background: rgba(74, 222, 128, 0.14); color: var(--ok); }
+.chip--cat[data-cat="farm"]     { background: rgba(251, 191, 36, 0.14); color: var(--warn); }
+
+.catbar { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 16px; }
+.catbar button {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 30px; padding: 0 11px; border-radius: 99px;
+  font-size: 12.5px; font-weight: 550; color: var(--ink-2);
+  background: var(--hover); box-shadow: inset 0 0 0 1px var(--line);
+  transition: background var(--t), color var(--t), box-shadow var(--t);
+}
+.catbar button:hover { background: var(--active); color: var(--ink); }
+.catbar button small { font-size: 11px; color: var(--ink-4); }
+.catbar button[data-on="true"] { background: var(--raised); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-2), var(--lift); }
+.catbar button[data-on="true"] small { color: var(--ink-2); }
+.catbar button[data-on="true"][data-cat="gamepass"] { color: #7dd3fc; }
+.catbar button[data-on="true"][data-cat="robux"]    { color: var(--ok); }
+.catbar button[data-on="true"][data-cat="farm"]     { color: var(--warn); }
+
+.seg--cat { margin-top: 2px; }
+.seg--cat button { padding: 0 10px; font-size: 12px; }

@@ -21,6 +21,7 @@ import { scheduleCaptureSweep } from "@/lib/retention";
 import { fail, ok, RATE_LIMITED } from "@/lib/api";
 import { CAPTURE_MAX_BYTES as MAX_BYTES } from "@/lib/limits";
 import type { VaultImage } from "@/lib/types";
+import { isCaptureCategory } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -84,6 +85,11 @@ export async function POST(req: NextRequest) {
   const customer = String(form.get("customer") ?? "").trim().slice(0, 60);
   if (!customer) return fail(400, "no-customer", "ใส่ชื่อลูกค้าก่อน");
 
+  // Optional, and silently dropped when it is not one of the three: an app one
+  // version ahead of the server must not have its uploads refused over a tag.
+  const rawCategory = form.get("category");
+  const category = isCaptureCategory(rawCategory) ? rawCategory : undefined;
+
   const clientId = String(form.get("clientId") ?? "").trim();
   if (!UUID_RE.test(clientId)) return fail(400, "bad-client-id", "clientId ไม่ถูกต้อง");
 
@@ -122,6 +128,7 @@ export async function POST(req: NextRequest) {
     kind: "capture",
     uploader: staff.id,
     customer,
+    ...(category ? { category } : {}),
     capturedAt,
     clientId,
     month,
