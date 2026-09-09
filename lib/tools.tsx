@@ -41,7 +41,7 @@ export const TOOL_DEFS: ToolDef[] = [
   { slug: "crop", name: "ครอปตามสัดส่วน", blurb: "1:1 · 4:5 · 16:9 ลากกรอบเอง สำหรับรูปสินค้าและโพสต์", category: "image", Icon: Crop },
   { slug: "bg", name: "ลบพื้นหลัง", blurb: "เร็ว ๆ นี้", category: "image", Icon: Eraser },
   { slug: "replace", name: "ค้นหา & แทนที่", blurb: "วางข้อความ ตั้งกฎหลายข้อ แทนที่ทีเดียว", category: "text", Icon: Replace },
-  { slug: "template", name: "เทมเพลตส่งลูกค้า", blurb: "ยืนยันออเดอร์ · ส่งแล้ว · รอคิว เติมช่องแล้วคัดลอก", category: "text", Icon: MessageSquareText },
+  { slug: "template", name: "ข้อความตอบลูกค้า", blurb: "การ์ดข้อความประจำ คลิกเดียวคัดลอก แยกเกมพาส/Robux แทนโน้ตแพด", category: "text", Icon: MessageSquareText },
   { slug: "price", name: "คำนวณราคา", blurb: "Robux ÷ เรต ปัดขึ้นเป็นบาท พร้อมข้อความตอบลูกค้า", category: "shop", Icon: Calculator },
   { slug: "qr", name: "QR ลิงก์", blurb: "ลิงก์รูป หน้าร้าน หรืออะไรก็ได้ เป็น QR มีโลโก้ตรงกลาง", category: "shop", Icon: QrCode },
 ];
