@@ -80,6 +80,7 @@ export function normalizeImage(raw: unknown): VaultImage | null {
     ...(typeof raw.customer === "string" && raw.customer ? { customer: raw.customer.slice(0, 60) } : {}),
     ...(typeof raw.capturedAt === "number" && raw.capturedAt > 0 ? { capturedAt: raw.capturedAt } : {}),
     ...(typeof raw.clientId === "string" && raw.clientId ? { clientId: raw.clientId.slice(0, 64) } : {}),
+    ...(/^\d{4}-\d{2}$/.test(str(raw.month)) ? { month: str(raw.month) } : {}),
   };
 }
 

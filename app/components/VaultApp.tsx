@@ -19,7 +19,7 @@ import {
   createVaultAlbum, updateVaultAlbum, deleteVaultAlbum,
 } from "@/lib/actions";
 import type { VaultRole } from "@/lib/session";
-import { deleteCapture, loadCaptures, renameCapture } from "@/lib/capture-actions";
+import { deleteCapture, loadCaptures, renameCapture, searchCaptures } from "@/lib/capture-actions";
 import Rail, { ALL, UNFILED, TRASH, TEXT_TOOL, CAPTURES, isCaptureView, captureStaffId } from "./Rail";
 import CapturesView from "./CapturesView";
 import StaffModal from "./StaffModal";
@@ -86,6 +86,9 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
   const [images, setImages] = useState<VaultImage[]>(initialData.images);
   const [staff, setStaff] = useState<VaultStaff[]>(initialData.staff);
   const [captures, setCaptures] = useState<VaultImage[]>(initialCaptures);
+  // The whole retention window, fetched only when someone actually searches.
+  const [archive, setArchive] = useState<VaultImage[] | null>(null);
+  const [searching, setSearching] = useState(false);
   const [captureMonth, setCaptureMonth] = useState(() => monthKey(Date.now()));
   const [staffOpen, setStaffOpen] = useState(false);
   // A read-only team session has no library to land on.
@@ -125,7 +128,10 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
   // viewer and its own month.
   const inCaptures = isCaptureView(active);
   const captureStaff = captureStaffId(active);
-  const currentMonth = monthKey(Date.now());
+
+  // Rows removed optimistically. A poll or a search landing before the server
+  // has committed the delete would otherwise put them back on screen.
+  const deletedCaptures = useRef<Set<string>>(new Set());
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -205,13 +211,69 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
   const viewerIndex = viewerId ? visible.findIndex((i) => i.id === viewerId) : -1;
   const viewerImage = viewerIndex >= 0 ? visible[viewerIndex] : null;
 
+  const captureQuery = inCaptures ? query.trim() : "";
+
+  /** The open month plus, while searching, everything inside retention. */
+  const captureList = useMemo(() => {
+    const merged = new Map<string, VaultImage>();
+    for (const c of captures) merged.set(c.id, c);
+    if (captureQuery && archive) for (const c of archive) merged.set(c.id, merged.get(c.id) ?? c);
+    return [...merged.values()].filter((c) => !deletedCaptures.current.has(c.id));
+  }, [captures, archive, captureQuery]);
+
+  const refreshCaptures = useCallback(async (month: string) => {
+    const [current, wide] = await Promise.all([
+      loadCaptures(month).then((r) => r.captures).catch(() => null),
+      archive ? searchCaptures().then((r) => r.captures).catch(() => null) : Promise.resolve(null),
+    ]);
+    if (current) setCaptures(current);
+    if (wide) setArchive(wide);
+  }, [archive]);
+
+  // Fetch the archive the first time a search runs, and refresh it whenever the
+  // query changes afterwards — a snapshot taken once per session went stale the
+  // moment anyone sent another capture.
+  useEffect(() => {
+    if (!captureQuery) return;
+    let live = true;
+    // Debounced, and the in-flight flag is set inside the timer rather than in
+    // the effect body — setting state synchronously here would re-render on
+    // every keystroke before the request had even started.
+    const timer = setTimeout(() => {
+      if (!live) return;
+      setSearching(true);
+      void searchCaptures()
+        .then((r) => { if (live) setArchive(r.captures); })
+        .catch(() => { if (live) setArchive((prev) => prev ?? []); })
+        .finally(() => { if (live) setSearching(false); });
+    }, 250);
+    return () => { live = false; clearTimeout(timer); };
+  }, [captureQuery]);
+
+  // New captures land while someone is looking at the page. Polling is the
+  // honest tool here: there is no socket, and a stale grid on a shared screen
+  // is what makes people think the app has stopped working.
+  useEffect(() => {
+    if (!inCaptures) return;
+    const tick = () => {
+      // Recomputed per tick, not captured once: a screen left open across the
+      // month boundary used to stop refreshing entirely.
+      if (document.visibilityState !== "visible" || captureMonth !== monthKey(Date.now())) return;
+      void refreshCaptures(captureMonth);
+    };
+    const id = setInterval(tick, 30_000);
+    const onVisible = () => { if (document.visibilityState === "visible") tick(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { clearInterval(id); document.removeEventListener("visibilitychange", onVisible); };
+  }, [inCaptures, captureMonth, refreshCaptures]);
+
   const captureCounts = useMemo(() => {
     const byStaff: Record<string, number> = {};
     let total = 0;
     const today = new Intl.DateTimeFormat("en-CA", {
       timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit",
     }).format(new Date());
-    for (const c of captures) {
+    for (const c of captureList) {
       const day = new Intl.DateTimeFormat("en-CA", {
         timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit",
       }).format(new Date(c.capturedAt ?? c.createdAt));
@@ -220,7 +282,7 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
       if (c.uploader) byStaff[c.uploader] = (byStaff[c.uploader] ?? 0) + 1;
     }
     return { total, byStaff };
-  }, [captures]);
+  }, [captureList]);
 
   const captureStaffMember = captureStaff ? staff.find((s) => s.id === captureStaff) : undefined;
 
@@ -630,6 +692,20 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
   // and comes back if the server refuses, so a slow connection never makes the
   // click feel ignored.
 
+  // A search spans months, so the row's own month is the only reliable answer
+  // to "which file holds this?" — the month picker is not it.
+  const monthOfCapture = (capture: VaultImage) =>
+    capture.month ?? monthKey(capture.capturedAt ?? capture.createdAt);
+
+  const patchCapture = useCallback((id: string, change: Partial<VaultImage> | null) => {
+    const apply = (list: VaultImage[]) =>
+      change === null
+        ? list.filter((c) => c.id !== id)
+        : list.map((c) => (c.id === id ? { ...c, ...change } : c));
+    setCaptures(apply);
+    setArchive((prev) => (prev ? apply(prev) : prev));
+  }, []);
+
   const askRenameCapture = useCallback((capture: VaultImage) => {
     setPrompt({
       title: "แก้ชื่อลูกค้า",
@@ -637,16 +713,19 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
       placeholder: "ชื่อในเกมของลูกค้า",
       confirm: "บันทึก",
       onConfirm: (name) => {
-        const before = captures;
-        setCaptures((prev) => prev.map((c) => (c.id === capture.id ? { ...c, customer: name, name } : c)));
-        void renameCapture(capture.id, captureMonth, name).then((res) => {
-          if (res.ok) return;
-          setCaptures(before);
+        const before = { customer: capture.customer, name: capture.name };
+        patchCapture(capture.id, { customer: name, name });
+        void guard(
+          () => renameCapture(capture.id, monthOfCapture(capture), name),
+          () => patchCapture(capture.id, before),
+        ).then((res) => {
+          if (!res || res.ok) return;
+          patchCapture(capture.id, before);
           say(res.error, "error");
         });
       },
     });
-  }, [captures, captureMonth, say]);
+  }, [guard, patchCapture, say]);
 
   const askDeleteCapture = useCallback((capture: VaultImage) => {
     setConfirm({
@@ -655,16 +734,21 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
       confirm: "ลบถาวร",
       tone: "danger",
       onConfirm: () => {
-        const before = captures;
-        setCaptures((prev) => prev.filter((c) => c.id !== capture.id));
-        void deleteCapture(capture.id, captureMonth).then((res) => {
+        const restore = () => { deletedCaptures.current.delete(capture.id); setCaptures((p) => [capture, ...p]); };
+        // Tombstoned as well as removed: a poll or a search landing before the
+        // server commits would otherwise put the row straight back.
+        deletedCaptures.current.add(capture.id);
+        patchCapture(capture.id, null);
+
+        void guard(() => deleteCapture(capture.id, monthOfCapture(capture)), restore).then((res) => {
+          if (!res) return;
           if (res.ok) { say("ลบหลักฐานแล้ว"); return; }
-          setCaptures(before);
+          restore();
           say(res.error, "error");
         });
       },
     });
-  }, [captures, captureMonth, say]);
+  }, [guard, patchCapture, say]);
 
   // ── Menu helpers ────────────────────────────────────────────────────────────
   const closeMenu = useCallback(() => setMenu(null), []);
@@ -807,18 +891,16 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
         >
           {inTextTool ? <TextTool /> : inCaptures ? (
             <CapturesView
-              captures={captures}
+              captures={captureList}
+              searching={searching}
               staff={staff}
               role={role}
               filterStaffId={captureStaff}
               query={query}
-              month={captureMonth}
-              currentMonth={currentMonth}
               canResize={storage.canResize}
               onCopy={(capture, format, width) => void copyOne(capture, format, width)}
               onRename={askRenameCapture}
               onDelete={askDeleteCapture}
-              onRefresh={setCaptures}
               onOpenStaff={() => setStaffOpen(true)}
             />
           ) : <>
@@ -1015,7 +1097,9 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
       {menu?.kind === "month" && (
         <Menu anchor={menu.anchor} onClose={closeMenu}>
           <div className="menu-label">เดือน</div>
-          {(captureMonths.includes(currentMonth) ? captureMonths : [currentMonth, ...captureMonths]).map((m) => (
+          {(captureMonths.includes(monthKey(Date.now()))
+            ? captureMonths
+            : [monthKey(Date.now()), ...captureMonths]).map((m) => (
             <MenuItem
               key={m}
               icon={captureMonth === m ? <Check size={14} color="var(--violet-hi)" /> : null}

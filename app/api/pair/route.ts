@@ -9,8 +9,8 @@ import { makeLimiter } from "@/lib/ratelimit";
 import { consumePairingCode } from "@/lib/pairing";
 import { generateStaffToken, hashToken, readDeviceHeader } from "@/lib/staff-auth";
 import { updateVault } from "@/lib/store";
-import { MAX_INPUT_BYTES } from "@/lib/encode";
 import { fail, ok, RATE_LIMITED } from "@/lib/api";
+import { CAPTURE_MAX_BYTES } from "@/lib/limits";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,7 +19,6 @@ export const dynamic = "force-dynamic";
 // one hopeless without needing a lockout that a typo could trigger.
 const limited = makeLimiter(10, 60_000);
 
-const CAPTURE_MAX_BYTES = 8 * 1024 * 1024;
 
 export async function POST(req: NextRequest) {
   const ip = getTrustedClientIp(req.headers) ?? "unknown";
@@ -75,10 +74,9 @@ export async function POST(req: NextRequest) {
   return ok({
     token,
     staff: res.staff,
-    server: {
-      maxBytes: CAPTURE_MAX_BYTES,
-      maxInputBytes: MAX_INPUT_BYTES,
-      acceptedMimes: ["image/webp", "image/png", "image/jpeg"],
-    },
+    // One number, shared with the endpoint that enforces it — advertising a
+    // larger limit than /api/capture accepts would have the app send uploads
+    // the server then 413s.
+    server: { maxBytes: CAPTURE_MAX_BYTES, acceptedMimes: ["image/webp", "image/png", "image/jpeg"] },
   });
 }

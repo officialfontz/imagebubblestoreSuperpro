@@ -7,85 +7,49 @@
 // for no gain. VaultApp swaps this in the way it already swaps in the text
 // tool, and this owns the rest.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { PackageCheck, SearchX, Loader2, Users } from "lucide-react";
 import type { VaultImage, VaultStaff, CopyFormat } from "@/lib/types";
 import type { VaultRole } from "@/lib/session";
-import { loadCaptures, searchCaptures } from "@/lib/capture-actions";
 import CaptureTile from "./CaptureTile";
 import Viewer from "./Viewer";
 import { dayLabel, shopDay } from "./ui";
 
 type Props = {
+  /** Already merged and de-duplicated by VaultApp: the open month, plus the
+   *  whole retention window while a search is running. */
   captures: VaultImage[];
+  searching: boolean;
   staff: VaultStaff[];
   role: VaultRole;
   /** null = everyone's proof; otherwise one person's. */
   filterStaffId: string | null;
   query: string;
-  month: string;
-  currentMonth: string;
   canResize: boolean;
   onCopy: (capture: VaultImage, format: CopyFormat, width?: number) => void;
   onRename: (capture: VaultImage) => void;
   onDelete: (capture: VaultImage) => void;
-  onRefresh: (captures: VaultImage[]) => void;
   onOpenStaff: () => void;
 };
 
 export default function CapturesView({
-  captures, staff, role, filterStaffId, query, month, currentMonth,
-  canResize, onCopy, onRename, onDelete, onRefresh, onOpenStaff,
+  captures, searching, staff, role, filterStaffId, query,
+  canResize, onCopy, onRename, onDelete, onOpenStaff,
 }: Props) {
   const [viewerId, setViewerId] = useState<string | null>(null);
-  // Search reaches back across the whole retention window; the month view does
-  // not. Loaded on first use rather than up front, because most sessions never
-  // search at all and the extra months are dead weight until they do.
-  const [archive, setArchive] = useState<VaultImage[] | null>(null);
-  const [searching, setSearching] = useState(false);
-  const searchStarted = useRef(false);
 
   const staffById = useMemo(() => new Map(staff.map((s) => [s.id, s])), [staff]);
   const q = query.trim().toLowerCase();
 
-  useEffect(() => {
-    if (!q || searchStarted.current) return;
-    // Guarded by a ref, not by state: setting state here to mark the fetch
-    // in-flight would re-run the effect before the fetch resolved.
-    searchStarted.current = true;
-    let live = true;
-    setSearching(true);
-    void searchCaptures()
-      .then((r) => { if (live) setArchive(r.captures); })
-      .catch(() => { if (live) setArchive([]); })
-      .finally(() => { if (live) setSearching(false); });
-    return () => { live = false; };
-  }, [q]);
-
-  // A new capture can land while someone is looking at the page. Polling is the
-  // honest tool here: there is no socket, and a stale grid on a shared screen is
-  // exactly what would make someone think the app had stopped working.
-  useEffect(() => {
-    if (month !== currentMonth) return;
-    const tick = () => {
-      if (document.visibilityState !== "visible") return;
-      void loadCaptures(month).then((r) => onRefresh(r.captures)).catch(() => undefined);
-    };
-    const id = setInterval(tick, 30_000);
-    return () => clearInterval(id);
-  }, [month, currentMonth, onRefresh]);
-
-  const source = q && archive ? archive : captures;
-
   const visible = useMemo(() => {
-    const list = source.filter((c) => {
+    const list = captures.filter((c) => {
       if (filterStaffId && c.uploader !== filterStaffId) return false;
       if (!q) return true;
       const who = c.uploader ? staffById.get(c.uploader)?.name ?? "" : "";
       return (c.customer ?? c.name).toLowerCase().includes(q) || who.toLowerCase().includes(q);
     });
     return list.sort((a, b) => (b.capturedAt ?? b.createdAt) - (a.capturedAt ?? a.createdAt));
-  }, [source, filterStaffId, q, staffById]);
+  }, [captures, filterStaffId, q, staffById]);
 
   // Grouped by day, because that is how anyone actually looks for proof: "the
   // one from Tuesday evening", not "the four hundredth item".

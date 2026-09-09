@@ -7,13 +7,13 @@
 
 import { randomUUID } from "crypto";
 import { requireAuth, requireOwner } from "./auth";
-import { loadVault, updateVault } from "./store";
+import { bustVaultCache, loadVault, updateVault } from "./store";
 import { deleteObject } from "./storage";
 import { canPurge, purgeUrls } from "./purge";
 import { issuePairingCode } from "./pairing";
 import {
-  listCaptureMonths as listMonths, loadCaptureMonth, loadCaptureMonths, monthOf,
-  recentMonths, shopDay, updateCaptureMonth,
+  bustCaptureCache, listCaptureMonths as listMonths, loadCaptureMonth, loadCaptureMonths,
+  monthOf, putCaptureSidecar, recentMonths, shopDay, updateCaptureMonth,
 } from "./captures";
 import type { ActionResult } from "./actions";
 import type { VaultImage, VaultStaff } from "./types";
@@ -77,6 +77,10 @@ export async function revokeStaff(id: string): Promise<ActionResult> {
   });
   if ("error" in res) return { ok: false, error: res.error };
   if (!res.found) return { ok: false, error: "ไม่พบทีมงานคนนี้" };
+  // The API routes read the roster through a 30s cache in their own module
+  // instance. Without this, a revoked device keeps uploading for half a minute
+  // after the owner is told it cannot.
+  bustVaultCache();
   return { ok: true };
 }
 
@@ -88,6 +92,9 @@ export async function revokeStaff(id: string): Promise<ActionResult> {
 export async function deleteStaff(id: string): Promise<ActionResult> {
   await requireOwner();
 
+  // Read past the cache: a capture that landed in the last thirty seconds must
+  // still block this, or its uploader resolves to nobody afterwards.
+  bustCaptureCache();
   const captures = await loadCaptureMonths(await listMonths());
   if (captures.some((c) => c.uploader === id)) {
     return { ok: false, error: "ยังมีหลักฐานที่ส่งโดยคนนี้ — ใช้ยกเลิกสิทธิ์แทน" };
@@ -146,16 +153,20 @@ export async function renameCapture(id: string, month: string, customer: string)
   const clean = String(customer ?? "").trim().slice(0, 60);
   if (!clean) return { ok: false, error: "ใส่ชื่อลูกค้าก่อน" };
 
-  const res = await updateCaptureMonth(month, (data) => {
+  const res = await updateCaptureMonth<{ updated: VaultImage | null }>(month, (data) => {
     const capture = data.captures.find((c) => c.id === id);
     if (capture) {
       capture.customer = clean;
       capture.name = clean;
     }
-    return { next: data, result: { found: Boolean(capture) } };
+    return { next: data, result: { updated: capture ?? null } };
   });
   if ("error" in res) return { ok: false, error: res.error };
-  if (!res.found) return { ok: false, error: "ไม่พบหลักฐานนี้" };
+  if (!res.updated) return { ok: false, error: "ไม่พบหลักฐานนี้" };
+
+  // The sidecar is what a rebuild reads. Leaving it stale would restore the
+  // typo this action exists to fix.
+  await putCaptureSidecar(res.updated).catch((e) => console.error("sidecar rename failed:", e));
   return { ok: true };
 }
 

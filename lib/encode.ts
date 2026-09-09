@@ -70,8 +70,16 @@ const MAX_CONCURRENT_ENCODES = 2;
 let _active = 0;
 const _waiting: (() => void)[] = [];
 
+/**
+ * Waits until a slot is genuinely free.
+ *
+ * The loop matters: a caller that arrives while a waiter is being woken would
+ * otherwise take the slot, and the woken waiter — which resumed without
+ * re-checking — would take it too. Four concurrent sharp decodes is exactly the
+ * memory blow-up this gate exists to prevent.
+ */
 export async function withEncodeSlot<T>(work: () => Promise<T>): Promise<T> {
-  if (_active >= MAX_CONCURRENT_ENCODES) {
+  while (_active >= MAX_CONCURRENT_ENCODES) {
     await new Promise<void>((resolve) => _waiting.push(resolve));
   }
   _active++;

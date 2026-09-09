@@ -33,20 +33,30 @@ export function currentMonth(): string {
 }
 
 /**
- * Which month file a capture belongs in.
+ * The capture time to actually record.
  *
  * The device clock decides, because a capture queued offline on the 31st and
- * delivered on the 1st belongs to the day it happened. A clock that is wildly
- * wrong — a fresh Windows install before time sync, say — would otherwise file
- * proof into 2003 where nobody would ever find it, so anything outside a sane
- * window falls back to server time.
+ * delivered on the 1st belongs to the day it happened. But a clock that is
+ * wildly wrong — a fresh Windows install before time sync — must not be
+ * trusted: an unclamped timestamp from 2003 is instantly older than the
+ * retention window, so the sweep destroyed the proof within hours of it
+ * arriving, while the staff member had seen it succeed.
+ *
+ * Clamping here rather than only when choosing the month is the fix: every
+ * consumer — the month file, the object key, the expiry, the viewer's
+ * countdown — reads this one value.
  */
-export function captureMonthFor(capturedAt: number, now: number = Date.now()): string {
+export function sanitizeCapturedAt(capturedAt: number, now: number = Date.now()): number {
   const sane =
     Number.isFinite(capturedAt) &&
     capturedAt > now - 60 * 24 * 60 * 60 * 1000 &&
     capturedAt < now + 24 * 60 * 60 * 1000;
-  return monthOf(sane ? capturedAt : now);
+  return sane ? capturedAt : now;
+}
+
+/** Which month file a capture belongs in. */
+export function captureMonthFor(capturedAt: number, now: number = Date.now()): string {
+  return monthOf(sanitizeCapturedAt(capturedAt, now));
 }
 
 function normalize(raw: unknown, month: string): CaptureMonth {
@@ -58,7 +68,9 @@ function normalize(raw: unknown, month: string): CaptureMonth {
         // uploader and clientId are what attribution and de-duplication rest
         // on; a record missing either is unusable rather than merely incomplete.
         .filter((c) => Boolean(c.uploader && c.clientId))
-        .map((c) => ({ ...c, kind: "capture" as const }))
+        // Stamp the month on rows written before the field existed, so an old
+        // record is still editable from a search result.
+        .map((c) => ({ ...c, kind: "capture" as const, month: c.month ?? month }))
     : [];
   return { version: 1, month: str(raw.month, month), captures };
 }
@@ -138,12 +150,19 @@ export function updateCaptureMonth<T>(
   mutate: (data: CaptureMonth) => { next: CaptureMonth; result: T },
 ): Promise<T | { error: string }> {
   return new Promise((resolve) => {
+    if (!MONTH_RE.test(month)) {
+      resolve({ error: "เดือนไม่ถูกต้อง" });
+      return;
+    }
     _writeQueue = _writeQueue
       .then(async () => {
         _cache.delete(month);
         const current = await loadCaptureMonth(month);
         const { next, result } = mutate(structuredClone(current));
-        await write(next);
+        // Write to the month we were asked for, never to whatever the file
+        // claims to be — a mismatched `month` field would otherwise send this
+        // update into a different file entirely.
+        await write({ ...next, month });
         resolve(result);
       })
       .catch((e) => {

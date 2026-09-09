@@ -98,6 +98,14 @@ export type VaultImage = {
   /** Device-generated UUID. A retried upload carries the same one, which is
    *  what stops a flaky connection from filing the same proof twice. */
   clientId?: string;
+  /**
+   * Which monthly catalog holds this record, "YYYY-MM".
+   *
+   * Carried on the row rather than inferred from whichever month the UI has
+   * open: search spans the whole retention window, and renaming a result from
+   * two months ago used to rewrite the wrong file and report "not found".
+   */
+  month?: string;
 };
 
 export type VaultData = {
@@ -128,8 +136,16 @@ export type CaptureMonth = {
 
 export const emptyCaptureMonth = (month: string): CaptureMonth => ({ version: 1, month, captures: [] });
 
-/** How long delivery proof is kept before the sweep destroys it. */
-export const CAPTURE_RETENTION_DAYS = Number(process.env.CAPTURE_RETENTION_DAYS ?? 90);
+/**
+ * How long delivery proof is kept before the sweep destroys it.
+ *
+ * NEXT_PUBLIC_ so the viewer's "เก็บอีก N วัน" is the real number: a plain env
+ * var is not inlined into the client bundle, so the countdown silently fell
+ * back to 90 no matter what the server was configured with.
+ */
+export const CAPTURE_RETENTION_DAYS = Number(
+  process.env.NEXT_PUBLIC_CAPTURE_RETENTION_DAYS ?? process.env.CAPTURE_RETENTION_DAYS ?? 90,
+);
 
 /**
  * Rewrites a public image URL to go through Cloudflare Image Resizing, which

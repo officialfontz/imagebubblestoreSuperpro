@@ -13,7 +13,7 @@
 // never contain a live credential.
 
 import { createHash, randomInt } from "crypto";
-import { loadVault, updateVault, bustVaultCache } from "./store";
+import { updateVault, bustVaultCache } from "./store";
 
 // No 0/O or 1/I: the code is read aloud or typed from a chat message, and those
 // pairs are where a six-character code actually goes wrong.
@@ -58,21 +58,22 @@ export async function consumePairingCode(input: string): Promise<string | null> 
   // for a fresh read here is free in practice and the alternative is a code
   // that mysteriously does not work for the first thirty seconds.
   bustVaultCache();
-  const vault = await loadVault();
 
-  const match = vault.staff.find(
-    (s) => s.pairing && s.pairing.hash === digest && Date.now() < s.pairing.expiresAt,
-  );
-  if (!match) return null;
-
-  const res = await updateVault<{ ok: boolean }>((data) => {
-    const staff = data.staff.find((s) => s.id === match.id);
-    if (staff) delete staff.pairing;
-    return { next: data, result: { ok: Boolean(staff) } };
+  // Match and clear in ONE pass inside the write queue. Checking first and
+  // clearing second let two requests inside the same catalog read — a retried
+  // slow request, or a double click — both come away with a token, and the
+  // second overwrote the first, leaving a device that 401s forever.
+  const res = await updateVault<{ staffId: string | null }>((data) => {
+    const staff = data.staff.find(
+      (s) => s.pairing && s.pairing.hash === digest && Date.now() < s.pairing.expiresAt,
+    );
+    if (!staff) return { next: data, result: { staffId: null } };
+    delete staff.pairing;
+    return { next: data, result: { staffId: staff.id } };
   });
-  if ("error" in res || !res.ok) return null;
 
-  return match.id;
+  if ("error" in res) return null;
+  return res.staffId;
 }
 
 export async function revokePairingCodes(staffId: string): Promise<void> {

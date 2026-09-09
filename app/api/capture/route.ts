@@ -15,19 +15,16 @@ import { encodeImage, objectKey, withEncodeSlot } from "@/lib/encode";
 import { deleteObject, putObject } from "@/lib/storage";
 import {
   captureMonthFor, loadCaptureMonths, monthOf, putCaptureSidecar, recentMonths,
-  staffTally, updateCaptureMonth,
+  sanitizeCapturedAt, staffTally, updateCaptureMonth,
 } from "@/lib/captures";
 import { scheduleCaptureSweep } from "@/lib/retention";
 import { fail, ok, RATE_LIMITED } from "@/lib/api";
+import { CAPTURE_MAX_BYTES as MAX_BYTES } from "@/lib/limits";
 import type { VaultImage } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// The app already downscales to 1920 px and encodes before sending, so a real
-// capture is 200 KB - 2 MB. 8 MiB is generous headroom that still bounds what a
-// single request can make this container decode.
-const MAX_BYTES = 8 * 1024 * 1024;
 const ACCEPTED: Record<string, string> = {
   "image/webp": "webp",
   "image/png": "png",
@@ -47,8 +44,13 @@ export async function POST(req: NextRequest) {
   if (limited(staff.id)) return RATE_LIMITED();
 
   // Checked before the body is read: on a 384 MB container, buffering a
-  // hundred-megabyte upload only to reject it is the failure itself.
-  const declared = Number(req.headers.get("content-length") ?? 0);
+  // hundred-megabyte upload only to reject it is the failure itself. A missing
+  // or unparsable header is refused rather than waved through — chunked
+  // requests would otherwise skip this guard entirely.
+  const declared = Number(req.headers.get("content-length"));
+  if (!Number.isFinite(declared) || declared <= 0) {
+    return fail(411, "no-length", "คำขอไม่ระบุขนาดไฟล์");
+  }
   if (declared > MAX_BYTES + 64 * 1024) return fail(413, "too-large", "ไฟล์ใหญ่เกิน 8MB");
 
   let form: FormData;
@@ -85,8 +87,9 @@ export async function POST(req: NextRequest) {
   const clientId = String(form.get("clientId") ?? "").trim();
   if (!UUID_RE.test(clientId)) return fail(400, "bad-client-id", "clientId ไม่ถูกต้อง");
 
-  const capturedAtRaw = Number(form.get("capturedAt"));
-  const capturedAt = Number.isFinite(capturedAtRaw) && capturedAtRaw > 0 ? capturedAtRaw : Date.now();
+  // Clamped once, here: an unusable device clock must not decide when this
+  // proof expires or which folder its bytes land in.
+  const capturedAt = sanitizeCapturedAt(Number(form.get("capturedAt")));
   const month = captureMonthFor(capturedAt);
 
   const tally = async () =>
@@ -121,6 +124,7 @@ export async function POST(req: NextRequest) {
     customer,
     capturedAt,
     clientId,
+    month,
     ...(encoded.blur ? { blur: encoded.blur } : {}),
   };
 
