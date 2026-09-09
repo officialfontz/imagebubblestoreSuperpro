@@ -63,7 +63,13 @@ export async function authenticateStaff(req: Request): Promise<AuthResult> {
     return { staff };
   }
 
-  return { error: "unauthorized", message: "ยังไม่ได้จับคู่อุปกรณ์" };
+  // A token nobody recognises usually means this device was replaced by a
+  // re-pair, not that it was never paired — so say the thing that leads
+  // somewhere.
+  return {
+    error: "unauthorized",
+    message: "อุปกรณ์นี้ใช้ไม่ได้แล้ว — ขอรหัสจับคู่ใหม่จากเจ้าของร้าน",
+  };
 }
 
 export type DeviceInfo = { name?: string; platform?: "windows" | "macos"; appVersion?: string };

@@ -31,7 +31,7 @@ import Tray, { type UploadJob } from "./Tray";
 import { useVirtualGrid } from "./useVirtualGrid";
 import { useMarqueeSelect } from "./useMarqueeSelect";
 import {
-  Menu, MenuItem, PromptModal, ConfirmModal, ToastStack, copyText, formatBytes, monthKey,
+  Menu, MenuItem, PromptModal, ConfirmModal, ToastStack, copyText, formatBytes, monthKey, shopDay,
   type Toast, type PromptSpec, type ConfirmSpec, type MenuAnchor,
 } from "./ui";
 
@@ -267,22 +267,26 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
     return () => { clearInterval(id); document.removeEventListener("visibilitychange", onVisible); };
   }, [inCaptures, captureMonth, refreshCaptures]);
 
+  /**
+   * Sidebar counts: today's captures while the current month is open, and the
+   * whole month's otherwise.
+   *
+   * Looking at August and seeing every counter read 0 under a header saying
+   * "รูปวันนี้" was worse than useless — it read as "nobody sent anything".
+   */
+  const viewingCurrentMonth = captureMonth === monthKey(Date.now());
+
   const captureCounts = useMemo(() => {
     const byStaff: Record<string, number> = {};
     let total = 0;
-    const today = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit",
-    }).format(new Date());
+    const today = shopDay(Date.now());
     for (const c of captureList) {
-      const day = new Intl.DateTimeFormat("en-CA", {
-        timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit",
-      }).format(new Date(c.capturedAt ?? c.createdAt));
-      if (day !== today) continue;
+      if (viewingCurrentMonth && shopDay(c.capturedAt ?? c.createdAt) !== today) continue;
       total++;
       if (c.uploader) byStaff[c.uploader] = (byStaff[c.uploader] ?? 0) + 1;
     }
     return { total, byStaff };
-  }, [captureList]);
+  }, [captureList, viewingCurrentMonth]);
 
   const captureStaffMember = captureStaff ? staff.find((s) => s.id === captureStaff) : undefined;
 
@@ -799,7 +803,8 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
             <h1>{title}</h1>
             {inCaptures ? (
               <span className="tnum">
-                {captureStaff ? captureCounts.byStaff[captureStaff] ?? 0 : captureCounts.total} รูปวันนี้
+                {captureStaff ? captureCounts.byStaff[captureStaff] ?? 0 : captureCounts.total}
+                {viewingCurrentMonth ? " รูปวันนี้" : " รูปเดือนนี้"}
                 {query && ` · ค้นหา “${query}”`}
               </span>
             ) : !inTextTool && (
