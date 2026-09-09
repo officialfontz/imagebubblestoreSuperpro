@@ -4,11 +4,11 @@
 // Drop images in, get permanent CDN links out. Everything the user embeds points
 // at R2, so the images keep serving no matter what this container is doing.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   Upload, Search, X, Copy, Trash2, Pencil, FolderInput, ExternalLink,
   ArrowUpDown, LayoutGrid, Grid2x2, Check, ImageOff, Sparkles, Inbox, Shrink, Undo2, Plus,
-  ImageDown, Minimize2, Calendar,
+  ImageDown, Minimize2, Calendar, Bell, BellOff,
 } from "lucide-react";
 import type { VaultData, VaultImage, VaultAlbum, VaultStaff, CopyFormat } from "@/lib/types";
 import { formatLink, resizedUrl, RESIZE_WIDTHS } from "@/lib/types";
@@ -20,6 +20,7 @@ import {
 } from "@/lib/actions";
 import type { VaultRole } from "@/lib/session";
 import { deleteCapture, loadCaptures, renameCapture, searchCaptures } from "@/lib/capture-actions";
+import { ping } from "@/lib/ping";
 import Rail, { ALL, UNFILED, TRASH, TEXT_TOOL, CAPTURES, isCaptureView, captureStaffId } from "./Rail";
 import CapturesView from "./CapturesView";
 import StaffModal from "./StaffModal";
@@ -80,6 +81,19 @@ type MenuState =
   | { kind: "album"; anchor: MenuAnchor; album: VaultAlbum }
   | { kind: "month"; anchor: MenuAnchor };
 
+// The alerts switch lives in localStorage, read through useSyncExternalStore so
+// the server renders "on", the client agrees on first paint, and a change in
+// another tab of the same browser is picked up too.
+const alertListeners = new Set<() => void>();
+function readAlerts(): boolean {
+  try { return localStorage.getItem("vault:alerts") !== "off"; } catch { return true; }
+}
+function subscribeAlerts(fn: () => void) {
+  alertListeners.add(fn);
+  window.addEventListener("storage", fn);
+  return () => { alertListeners.delete(fn); window.removeEventListener("storage", fn); };
+}
+
 export default function VaultApp({ initialData, storage, role, initialCaptures, captureMonths }: Props) {
   const isOwner = role === "owner";
   const [albums, setAlbums] = useState<VaultAlbum[]>(initialData.albums);
@@ -114,11 +128,56 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
   const dragDepth = useRef(0);
 
   // ── Toasts ──────────────────────────────────────────────────────────────────
-  const say = useCallback((text: string, kind: "ok" | "error" = "ok") => {
+  const say = useCallback((text: string, kind: "ok" | "error" = "ok", ms?: number) => {
     const id = ++toastId.current;
     setToasts((prev) => [...prev.slice(-2), { id, text, kind }]);
-    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), kind === "error" ? 4500 : 2000);
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), ms ?? (kind === "error" ? 4500 : 2000));
   }, []);
+
+  // ── Arrivals ────────────────────────────────────────────────────────────────
+  // Whether to say something when a capture lands. Stored per browser: the
+  // shop's shared screen wants the ping, the owner's phone probably does not.
+  const alerts = useSyncExternalStore(subscribeAlerts, readAlerts, () => true);
+  const toggleAlerts = useCallback(() => {
+    const next = !readAlerts();
+    try { localStorage.setItem("vault:alerts", next ? "on" : "off"); } catch { /* private mode */ }
+    alertListeners.forEach((fn) => fn());
+    // Ask for browser notifications the moment someone turns alerts on — that
+    // click is the user gesture the permission prompt needs.
+    if (next && "Notification" in window && Notification.permission === "default") {
+      void Notification.requestPermission();
+    }
+  }, []);
+
+  /** Ids already on screen, so a refresh can tell what is actually new. */
+  const seenCaptures = useRef<Set<string>>(new Set(initialCaptures.map((c) => c.id)));
+  /** Arrivals nobody has looked at yet — shown on the tab title while hidden. */
+  const unseen = useRef(0);
+
+  const announce = useCallback((fresh: VaultImage[]) => {
+    if (fresh.length === 0) return;
+    const who = (c: VaultImage) => {
+      const s = staff.find((m) => m.id === c.uploader);
+      return s ? `${s.emoji} ${s.name}` : "ทีมงาน";
+    };
+    const first = fresh[0];
+    const text = fresh.length === 1
+      ? `${who(first)} ส่งหลักฐาน · ${first.customer ?? first.name}`
+      : `หลักฐานใหม่ ${fresh.length} ใบ · ล่าสุด ${first.customer ?? first.name}`;
+    say(text, "ok", 6000);
+    ping();
+
+    if (document.visibilityState !== "visible") {
+      unseen.current += fresh.length;
+      document.title = `(${unseen.current}) Bubble Vault`;
+      if ("Notification" in window && Notification.permission === "granted") {
+        try {
+          const n = new Notification("Bubble Vault", { body: text, tag: "vault-capture" });
+          n.onclick = () => { window.focus(); n.close(); };
+        } catch { /* some browsers throw without a service worker */ }
+      }
+    }
+  }, [staff, say]);
 
   // ── Derived ─────────────────────────────────────────────────────────────────
   const inTrash = active === TRASH;
@@ -226,9 +285,14 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
       loadCaptures(month).then((r) => r.captures).catch(() => null),
       archive ? searchCaptures().then((r) => r.captures).catch(() => null) : Promise.resolve(null),
     ]);
-    if (current) setCaptures(current);
+    if (current) {
+      setCaptures(current);
+      const fresh = current.filter((c) => !seenCaptures.current.has(c.id));
+      for (const c of current) seenCaptures.current.add(c.id);
+      if (alerts) announce(fresh);
+    }
     if (wide) setArchive(wide);
-  }, [archive]);
+  }, [archive, alerts, announce]);
 
   // Fetch the archive the first time a search runs, and refresh it whenever the
   // query changes afterwards — a snapshot taken once per session went stale the
@@ -253,19 +317,28 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
   // New captures land while someone is looking at the page. Polling is the
   // honest tool here: there is no socket, and a stale grid on a shared screen
   // is what makes people think the app has stopped working.
+  //
+  // It runs in every section, not only this one: the point of an alert is to
+  // hear about a delivery while looking at something else. A hidden tab keeps
+  // polling too, more slowly, so the title can carry the count.
   useEffect(() => {
-    if (!inCaptures) return;
     const tick = () => {
       // Recomputed per tick, not captured once: a screen left open across the
       // month boundary used to stop refreshing entirely.
-      if (document.visibilityState !== "visible" || captureMonth !== monthKey(Date.now())) return;
+      if (captureMonth !== monthKey(Date.now())) return;
+      if (document.visibilityState !== "visible" && !alerts) return;
       void refreshCaptures(captureMonth);
     };
-    const id = setInterval(tick, 30_000);
-    const onVisible = () => { if (document.visibilityState === "visible") tick(); };
+    const id = setInterval(tick, document.visibilityState === "visible" ? 20_000 : 60_000);
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      unseen.current = 0;
+      document.title = "Bubble Vault";
+      tick();
+    };
     document.addEventListener("visibilitychange", onVisible);
     return () => { clearInterval(id); document.removeEventListener("visibilitychange", onVisible); };
-  }, [inCaptures, captureMonth, refreshCaptures]);
+  }, [captureMonth, refreshCaptures, alerts]);
 
   /**
    * Sidebar counts: today's captures while the current month is open, and the
@@ -835,6 +908,18 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
           </label>
 
           {inCaptures ? (
+            <>
+            <button
+              type="button"
+              className="iconbtn"
+              data-on={alerts}
+              aria-pressed={alerts}
+              aria-label="แจ้งเตือนเมื่อมีหลักฐานใหม่"
+              title={alerts ? "แจ้งเตือนเปิดอยู่ — เสียงติ๊งและป้ายเมื่อมีใบใหม่" : "แจ้งเตือนปิดอยู่"}
+              onClick={toggleAlerts}
+            >
+              {alerts ? <Bell size={16} /> : <BellOff size={16} />}
+            </button>
             <button
               type="button"
               className="btn"
@@ -843,6 +928,7 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
               <Calendar size={15} />
               {monthLabel(captureMonth)}
             </button>
+            </>
           ) : (
           <button
             type="button"
