@@ -10,13 +10,14 @@
 // One choice, not five: a size ceiling, or a quality, or a longest edge. The
 // last choice is remembered, so the second time it is throw, copy, paste.
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Clipboard, Download, Trash2, Check, Loader2, ImagePlus, X } from "lucide-react";
 import {
   DEFAULT_SHRINK, asPng, extOf, renamed, shrink, zipOf,
   type ShrinkFormat, type ShrinkMode, type ShrinkResult, type ShrinkSettings,
 } from "@/lib/shrink";
 import { formatBytes } from "./ui";
+import { settingsStore } from "@/lib/settings-store";
 
 type Job = {
   id: string;
@@ -32,33 +33,10 @@ const STORAGE_KEY = "bv.shrink.v1";
 const KB_CHIPS = [200, 500, 1024, 2048];
 const WIDTH_CHIPS = [800, 1280, 1920, 2560];
 
-// The settings live in localStorage and are read through useSyncExternalStore,
-// so the server renders the defaults, the first client paint agrees, and the
-// saved values arrive without a state update inside an effect.
-let current: ShrinkSettings | null = null;
-const listeners = new Set<() => void>();
-function readSettings(): ShrinkSettings {
-  if (current) return current;
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    current = raw ? { ...DEFAULT_SHRINK, ...(JSON.parse(raw) as Partial<ShrinkSettings>) } : DEFAULT_SHRINK;
-  } catch {
-    current = DEFAULT_SHRINK;
-  }
-  return current;
-}
-function writeSettings(next: ShrinkSettings) {
-  current = next;
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* private mode */ }
-  listeners.forEach((fn) => fn());
-}
-function subscribe(fn: () => void) {
-  listeners.add(fn);
-  return () => { listeners.delete(fn); };
-}
+const store = settingsStore<ShrinkSettings>(STORAGE_KEY, DEFAULT_SHRINK);
 
 export default function ShrinkTool() {
-  const settings = useSyncExternalStore(subscribe, readSettings, () => DEFAULT_SHRINK);
+  const settings = store.use();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [over, setOver] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -66,7 +44,7 @@ export default function ShrinkTool() {
   /** Jobs whose shrink is in flight, so a double pump never runs one twice. */
   const inFlight = useRef<Set<string>>(new Set());
 
-  const change = (patch: Partial<ShrinkSettings>) => writeSettings({ ...readSettings(), ...patch });
+  const change = store.patch;
 
   const say = (text: string) => {
     setNote(text);
@@ -92,7 +70,7 @@ export default function ShrinkTool() {
       if (!inFlight.current.has(id)) {
         inFlight.current.add(id);
         const file = next.file;
-        void shrink(file, readSettings())
+        void shrink(file, store.read())
         .then((result) => setJobs((cur) => cur.map((j) => (j.id === id ? { ...j, state: "done", result } : j))))
         .catch(() => setJobs((cur) => cur.map((j) => (j.id === id ? { ...j, state: "failed", error: "เปิดรูปนี้ไม่ได้" } : j))))
           .finally(() => { inFlight.current.delete(id); pump(); });
