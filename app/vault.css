@@ -1040,6 +1040,7 @@
 .rp-row[data-group="gamepass"] .rp-row-text b::after, .rp-row[data-group="robux"] .rp-row-text b::after { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 99px; margin-left: 6px; vertical-align: middle; background: var(--violet-hi); }
 .rp-row[data-group="robux"] .rp-row-text b::after { background: var(--ok); }
 .rp-dot { flex: none; width: 7px; height: 7px; border-radius: 99px; background: #fbbf24; }
+.rp-shared { padding-top: 8px; border-top: 1px solid var(--line); font-size: 11px; color: var(--ink-4); text-align: center; }
 .rp-list-foot { display: flex; gap: 6px; padding-top: 8px; border-top: 1px solid var(--line); }
 .rp-list-foot .btn { flex: 1; justify-content: center; }
 .rp-empty { padding: 30px 10px; text-align: center; color: var(--ink-4); font-size: 12.5px; }

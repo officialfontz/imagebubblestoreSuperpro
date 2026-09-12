@@ -16,7 +16,7 @@ import {
   monthOf, putCaptureSidecar, recentMonths, shopDay, updateCaptureMonth,
 } from "./captures";
 import type { ActionResult } from "./actions";
-import type { CaptureCategory, VaultImage, VaultStaff } from "./types";
+import type { CaptureCategory, VaultImage, VaultReply, VaultStaff } from "./types";
 import { isCaptureCategory } from "./types";
 
 // ── Team ──────────────────────────────────────────────────────────────────────
@@ -253,4 +253,38 @@ export async function captureCountsToday(): Promise<{ total: number; byStaff: Re
     if (c.uploader) byStaff[c.uploader] = (byStaff[c.uploader] ?? 0) + 1;
   }
   return { total, byStaff };
+}
+
+// ── Canned replies ────────────────────────────────────────────────────────────
+// The shop's stock messages, kept in the vault so every machine has the same
+// set. Anyone signed in may read and use them; only the owner rewrites the
+// list, the same rule the rest of this file follows.
+
+export async function loadReplies(): Promise<VaultReply[]> {
+  await requireAuth();
+  const data = await loadVault();
+  return data.replies;
+}
+
+export async function saveReplies(replies: VaultReply[]): Promise<ActionResult<{ replies: VaultReply[] }>> {
+  await requireOwner();
+  if (!Array.isArray(replies)) return { ok: false, error: "รูปแบบข้อมูลไม่ถูกต้อง" };
+
+  const clean: VaultReply[] = replies
+    .filter((r) => r && typeof r === "object")
+    .map((r): VaultReply => ({
+      id: String(r.id ?? "").slice(0, 40) || randomUUID(),
+      name: String(r.name ?? "").trim().slice(0, 40) || "ข้อความ",
+      body: String(r.body ?? "").slice(0, 4000),
+      group: r.group === "gamepass" || r.group === "robux" ? r.group : "general",
+    }))
+    .filter((r) => r.body.trim())
+    .slice(0, 200);
+
+  const res = await updateVault<{ replies: VaultReply[] }>((data) => {
+    data.replies = clean;
+    return { next: data, result: { replies: clean } };
+  });
+  if ("error" in res) return { ok: false, error: res.error };
+  return { ok: true, replies: res.replies };
 }

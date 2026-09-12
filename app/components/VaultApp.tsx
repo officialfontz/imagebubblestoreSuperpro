@@ -1071,7 +1071,7 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
           {inTextTool ? (
             active === TOOLS_HUB || !activeTool?.component
               ? <ToolsHub onOpen={setActive} />
-              : <activeTool.component />
+              : <activeTool.component isOwner={isOwner} />
           ) : inCaptures ? (
             <CapturesView
               captures={captureList}

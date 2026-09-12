@@ -10,7 +10,7 @@
 
 import fs from "fs/promises";
 import path from "path";
-import { emptyVault, type VaultData, type VaultAlbum, type VaultImage, type VaultStaff } from "./types";
+import { emptyVault, type VaultData, type VaultAlbum, type VaultImage, type VaultReply, type VaultStaff } from "./types";
 import { isCaptureCategory } from "./types";
 import { getDriver, getCatalog, putCatalog } from "./storage";
 
@@ -128,6 +128,15 @@ function normalizeStaff(raw: unknown): VaultStaff | null {
   };
 }
 
+function normalizeReply(raw: unknown): VaultReply | null {
+  if (!isRecord(raw)) return null;
+  const id = str(raw.id);
+  const body = str(raw.body).slice(0, 4000);
+  if (!id || !body.trim()) return null;
+  const group = raw.group === "gamepass" || raw.group === "robux" ? raw.group : "general";
+  return { id, name: str(raw.name, "ข้อความ").slice(0, 40), body, group };
+}
+
 function normalize(raw: unknown): VaultData {
   if (!isRecord(raw)) return emptyVault();
   const albums = Array.isArray(raw.albums)
@@ -145,7 +154,10 @@ function normalize(raw: unknown): VaultData {
   const staff = Array.isArray(raw.staff)
     ? raw.staff.map(normalizeStaff).filter((s): s is VaultStaff => s !== null)
     : [];
-  return { version: 1, albums, images, staff };
+  const replies = Array.isArray(raw.replies)
+    ? raw.replies.map(normalizeReply).filter((r): r is VaultReply => r !== null).slice(0, 200)
+    : [];
+  return { version: 1, albums, images, staff, replies };
 }
 
 // ── Read / write ──────────────────────────────────────────────────────────────

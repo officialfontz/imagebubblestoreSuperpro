@@ -20,8 +20,9 @@ export type ToolDef = {
   blurb: string;
   category: ToolCategory;
   Icon: ComponentType<{ size?: number }>;
-  /** Present once the tool exists; absent while it is only planned. */
-  component?: ComponentType;
+  /** Present once the tool exists; absent while it is only planned.
+   *  Tools that keep shared state are told whether this session may write. */
+  component?: ComponentType<{ isOwner?: boolean }>;
 };
 
 export const CATEGORY_LABEL: Record<ToolCategory, string> = { image: "ภาพ", text: "ข้อความ", shop: "ร้าน" };

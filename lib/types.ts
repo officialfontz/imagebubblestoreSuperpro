@@ -115,14 +115,29 @@ export type VaultImage = {
   month?: string;
 };
 
+/**
+ * One canned reply.
+ *
+ * These live in the vault rather than in each browser: the shop writes a
+ * message once and every machine — the owner's laptop, each staff PC — has
+ * it. What stays local is only what someone typed into its blanks.
+ */
+export type VaultReply = {
+  id: string;
+  name: string;
+  body: string;
+  group: "general" | "gamepass" | "robux";
+};
+
 export type VaultData = {
   version: 1;
   albums: VaultAlbum[];
   images: VaultImage[];
   staff: VaultStaff[];
+  replies: VaultReply[];
 };
 
-export const emptyVault = (): VaultData => ({ version: 1, albums: [], images: [], staff: [] });
+export const emptyVault = (): VaultData => ({ version: 1, albums: [], images: [], staff: [], replies: [] });
 
 /**
  * One month of delivery proof, stored as its own object.

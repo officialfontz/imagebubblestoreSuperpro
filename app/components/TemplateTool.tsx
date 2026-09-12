@@ -6,13 +6,14 @@
 // Arrow keys walk the list, Enter copies, a digit copies that row outright.
 // The whole notepad can be pasted in and becomes cards, one per paragraph.
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Check, Plus, Trash2, RotateCcw, Pencil, ClipboardPaste, Search, X, Copy, ArrowUp, ArrowDown } from "lucide-react";
 import {
   DEFAULT_REPLIES, DEFAULT_REPLY_SETTINGS, GROUPS, GROUP_LABEL, fieldsOf, matches, newReply, render, splitNotepad, unfilled, unshortcode,
   type Reply, type ReplyGroup, type ReplySettings,
 } from "@/lib/templates";
 import { settingsStore } from "@/lib/settings-store";
+import { loadReplies, saveReplies } from "@/lib/capture-actions";
 import { copyText } from "./ui";
 
 const store = settingsStore<ReplySettings>("bv.replies.v2", DEFAULT_REPLY_SETTINGS);
@@ -24,7 +25,7 @@ const useMinute = () => useSyncExternalStore(tick, minuteNow, () => 0);
 
 type Filter = ReplyGroup | "all";
 
-export default function TemplateTool() {
+export default function TemplateTool({ isOwner = false }: { isOwner?: boolean }) {
   const s = store.use();
   const minute = useMinute();
   const [q, setQ] = useState("");
@@ -40,6 +41,41 @@ export default function TemplateTool() {
 
   const say = (t: string) => { setNote(t); setTimeout(() => setNote((n) => (n === t ? null : n)), 2200); };
   const now = new Date(minute * 60_000);
+
+  // ── The shared set ─────────────────────────────────────────────────────────
+  // The messages live in the vault, so a card written on one machine is there
+  // on every other. What stays in this browser is only what was typed into
+  // the blanks, the polite ending, and the count of what gets used most.
+  const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pushReplies = (replies: Reply[]) => {
+    store.patch({ replies });
+    if (!isOwner) return;
+    if (pushTimer.current) clearTimeout(pushTimer.current);
+    pushTimer.current = setTimeout(() => {
+      void saveReplies(replies).then((res) => { if (!res.ok) say(res.error); }).catch(() => say("บันทึกขึ้นคลังไม่สำเร็จ"));
+    }, 600);
+  };
+
+  const pull = useCallback(() => {
+    void loadReplies().then((remote) => {
+      const local = store.read().replies;
+      // An empty vault on a machine that already has cards means this is the
+      // first run since the move — the local set becomes the shared one.
+      if (remote.length === 0 && local.length > 0) {
+        if (isOwner) void saveReplies(local).catch(() => undefined);
+        return;
+      }
+      if (remote.length === 0) return;
+      if (JSON.stringify(remote) !== JSON.stringify(local)) store.patch({ replies: remote });
+    }).catch(() => undefined);
+  }, [isOwner]);
+
+  useEffect(() => {
+    pull();
+    const onFocus = () => pull();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [pull]);
 
   const visible = s.replies.filter((r) => (filter === "all" || r.group === filter) && matches(r, q));
   // The selection follows the list: whatever is chosen if it is still on
@@ -87,25 +123,25 @@ export default function TemplateTool() {
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  const patchReply = (id: string, patch: Partial<Reply>) => store.patch({ replies: s.replies.map((r) => (r.id === id ? { ...r, ...patch } : r)) });
+  const patchReply = (id: string, patch: Partial<Reply>) => pushReplies(s.replies.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   const add = () => {
     const r = newReply(filter === "all" ? "general" : filter);
-    store.patch({ replies: [r, ...s.replies] });
+    pushReplies([r, ...s.replies]);
     setQ(""); setSelId(r.id); setEditing(true);
   };
-  const remove = (id: string) => { store.patch({ replies: s.replies.filter((r) => r.id !== id) }); setEditing(false); };
+  const remove = (id: string) => { pushReplies(s.replies.filter((r) => r.id !== id)); setEditing(false); };
   const move = (id: string, dir: -1 | 1) => {
     const i = s.replies.findIndex((r) => r.id === id);
     const j = i + dir;
     if (i < 0 || j < 0 || j >= s.replies.length) return;
     const next = [...s.replies];
     [next[i], next[j]] = [next[j], next[i]];
-    store.patch({ replies: next });
+    pushReplies(next);
   };
   const doImport = () => {
     const cards = splitNotepad(importText ?? "", importGroup);
     if (!cards.length) { say("ไม่พบข้อความ — เว้นบรรทัดว่างระหว่างข้อความ"); return; }
-    store.patch({ replies: [...cards, ...s.replies] });
+    pushReplies([...cards, ...s.replies]);
     setImportText(null);
     setSelId(cards[0].id);
     say(`เพิ่ม ${cards.length} ข้อความจากโน้ตแล้ว`);
@@ -140,10 +176,14 @@ export default function TemplateTool() {
             </button>
           ))}
         </div>
-        <div className="rp-list-foot">
-          <button type="button" className="btn btn--sm" onClick={() => setImportText("")}><ClipboardPaste size={13} /> วางจากโน้ต</button>
-          <button type="button" className="btn btn--sm" onClick={add}><Plus size={13} /> เพิ่ม</button>
-        </div>
+        {isOwner ? (
+          <div className="rp-list-foot">
+            <button type="button" className="btn btn--sm" onClick={() => setImportText("")}><ClipboardPaste size={13} /> วางจากโน้ต</button>
+            <button type="button" className="btn btn--sm" onClick={add}><Plus size={13} /> เพิ่ม</button>
+          </div>
+        ) : (
+          <p className="rp-shared">ชุดข้อความของร้าน — เจ้าของร้านเป็นคนแก้</p>
+        )}
       </aside>
 
       <section className="rp-pane">
@@ -165,7 +205,7 @@ export default function TemplateTool() {
         ) : !sel ? (
           <div className="rp-blank">
             <b>ยังไม่มีข้อความ</b>
-            <span>กด “วางจากโน้ต” เพื่อย้ายทั้งชุดมาทีเดียว หรือ “เพิ่ม” ทีละใบ</span>
+            <span>{isOwner ? "กด “วางจากโน้ต” เพื่อย้ายทั้งชุดมาทีเดียว หรือ “เพิ่ม” ทีละใบ" : "เจ้าของร้านยังไม่ได้ใส่ข้อความ"}</span>
           </div>
         ) : editing ? (
           <div className="rp-edit">
@@ -194,7 +234,7 @@ export default function TemplateTool() {
               <span className="rp-chip" data-group={sel.group}>{GROUP_LABEL[sel.group]}</span>
               {(s.uses?.[sel.id] ?? 0) > 0 && <span className="rp-chip">ใช้ {s.uses![sel.id]} ครั้ง</span>}
               <span style={{ flex: 1 }} />
-              <button type="button" className="btn btn--sm" onClick={() => setEditing(true)}><Pencil size={12} /> แก้ถ้อยคำ</button>
+              {isOwner && <button type="button" className="btn btn--sm" onClick={() => setEditing(true)}><Pencil size={12} /> แก้ถ้อยคำ</button>}
             </header>
 
             {fields.length > 0 && (
@@ -227,9 +267,11 @@ export default function TemplateTool() {
                 <button type="button" data-on={s.ending === "f"} onClick={() => store.patch({ ending: "f" })}>ค่ะ</button>
               </div>
               <span style={{ flex: 1 }} />
-              <button type="button" className="btn btn--sm btn--ghost" onClick={() => { store.patch({ replies: DEFAULT_REPLIES }); say("กลับเป็นชุดเริ่มต้นแล้ว"); }}>
-                <RotateCcw size={13} /> ชุดเริ่มต้น
-              </button>
+              {isOwner && (
+                <button type="button" className="btn btn--sm btn--ghost" onClick={() => { pushReplies(DEFAULT_REPLIES); say("กลับเป็นชุดเริ่มต้นแล้ว"); }}>
+                  <RotateCcw size={13} /> ชุดเริ่มต้น
+                </button>
+              )}
             </div>
           </>
         )}
