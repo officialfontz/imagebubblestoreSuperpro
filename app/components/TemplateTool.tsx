@@ -17,6 +17,8 @@ import { loadReplies, saveReplies } from "@/lib/capture-actions";
 import { copyText } from "./ui";
 
 const store = settingsStore<ReplySettings>("bv.replies.v2", DEFAULT_REPLY_SETTINGS);
+/** Set once this browser's own cards have been folded into the shared set. */
+const MERGED_KEY = "bv.replies.merged.v1";
 
 // The clock as an external store: {วันที่} and {เวลา} follow it.
 const minuteNow = () => Math.floor(Date.now() / 60_000);
@@ -56,16 +58,54 @@ export default function TemplateTool({ isOwner = false }: { isOwner?: boolean })
     }, 600);
   };
 
+  /** Cards on this machine that the vault has never seen, waiting to go up. */
+  const [unsynced, setUnsynced] = useState<Reply[]>([]);
+
   const pull = useCallback(() => {
     void loadReplies().then((remote) => {
       const local = store.read().replies;
-      // An empty vault on a machine that already has cards means this is the
-      // first run since the move — the local set becomes the shared one.
-      if (remote.length === 0 && local.length > 0) {
-        if (isOwner) void saveReplies(local).catch(() => undefined);
+      // Same card, written on two machines, is one card: match on the id, and
+      // failing that on what it actually says.
+      const said = (r: Reply) => `${r.name.trim()}\u0000${r.body.trim()}`;
+      const known = new Set([...remote.map((r) => r.id), ...remote.map(said)]);
+      const extra = local.filter((r) => !known.has(r.id) && !known.has(said(r)));
+
+      // The first sync on this browser keeps whatever was typed here before
+      // the set moved into the vault. After that the vault is the truth, so
+      // deleting a card on one machine really deletes it.
+      const firstSync = (() => {
+        try { return !localStorage.getItem(MERGED_KEY); } catch { return false; }
+      })();
+
+      if (remote.length === 0) {
+        // Nothing up there yet: this machine's set becomes the shared one.
+        if (local.length > 0 && isOwner) void saveReplies(local).catch(() => undefined);
         return;
       }
-      if (remote.length === 0) return;
+
+      if (firstSync && extra.length > 0) {
+        const merged = [...extra, ...remote];
+        store.patch({ replies: merged });
+        if (isOwner) {
+          void saveReplies(merged).then((res) => {
+            if (res.ok) {
+              try { localStorage.setItem(MERGED_KEY, "1"); } catch { /* private mode */ }
+              setUnsynced([]);
+              say(`รวมข้อความในเครื่องนี้ ${extra.length} ใบขึ้นคลังแล้ว`);
+            } else {
+              setUnsynced(extra);
+            }
+          }).catch(() => setUnsynced(extra));
+        } else {
+          // A staff session cannot write: keep them visible here and say so,
+          // rather than dropping what someone typed.
+          setUnsynced(extra);
+        }
+        return;
+      }
+
+      try { localStorage.setItem(MERGED_KEY, "1"); } catch { /* private mode */ }
+      setUnsynced([]);
       if (JSON.stringify(remote) !== JSON.stringify(local)) store.patch({ replies: remote });
     }).catch(() => undefined);
   }, [isOwner]);
@@ -165,6 +205,22 @@ export default function TemplateTool({ isOwner = false }: { isOwner?: boolean })
             </button>
           ))}
         </div>
+        {unsynced.length > 0 && (
+          <div className="rp-unsynced">
+            <b>{unsynced.length} ข้อความในเครื่องนี้ยังไม่ขึ้นคลัง</b>
+            {isOwner ? (
+              <button type="button" className="btn btn--sm btn--primary" onClick={() => {
+                const merged = [...unsynced, ...s.replies.filter((r) => !unsynced.some((u) => u.id === r.id))];
+                pushReplies(merged);
+                try { localStorage.setItem(MERGED_KEY, "1"); } catch { /* private mode */ }
+                setUnsynced([]);
+                say("อัปขึ้นคลังแล้ว — เครื่องอื่นจะเห็นด้วย");
+              }}>อัปขึ้นคลัง</button>
+            ) : (
+              <span>ให้เจ้าของร้านเปิดหน้านี้จากเครื่องนี้</span>
+            )}
+          </div>
+        )}
         <div className="rp-rows" ref={listRef}>
           {visible.length === 0 && <p className="rp-empty">ไม่พบ “{q}”</p>}
           {visible.map((r, i) => (
