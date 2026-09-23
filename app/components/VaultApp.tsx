@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
-  Upload, Search, X, Copy, Trash2, Pencil, FolderInput, ExternalLink,
+  Upload, Search, X, Copy, Trash2, Pencil, FolderInput, ExternalLink, Stamp,
   ArrowUpDown, LayoutGrid, Grid2x2, Check, ImageOff, Sparkles, Inbox, Shrink, Undo2, Plus,
   ImageDown, Minimize2, Calendar, Bell, BellOff,
 } from "lucide-react";
@@ -130,6 +130,8 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
   const [sort, setSort] = useState<Sort>("new");
   const [dense, setDense] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  /** Pictures on their way from the library into a tool. */
+  const [handoff, setHandoff] = useState<{ id: string; name: string }[] | null>(null);
   const [jobs, setJobs] = useState<UploadJob[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [dragFiles, setDragFiles] = useState(false);
@@ -1071,7 +1073,7 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
           {inTextTool ? (
             active === TOOLS_HUB || !activeTool?.component
               ? <ToolsHub onOpen={setActive} />
-              : <activeTool.component isOwner={isOwner} />
+              : <activeTool.component isOwner={isOwner} incoming={handoff ?? undefined} onIncomingTaken={() => setHandoff(null)} />
           ) : inCaptures ? (
             <CapturesView
               captures={captureList}
@@ -1209,6 +1211,18 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
             </>
           ) : (
             <>
+              <button
+                type="button"
+                className="btn btn--sm"
+                title="ใส่โลโก้ร้านให้ทุกรูปที่เลือก"
+                onClick={() => {
+                  setHandoff(selectedImages.map((i) => ({ id: i.id, name: i.name })));
+                  setSelected(new Set());
+                  setActive(toolKey("stamp"));
+                }}
+              >
+                <Stamp size={13} /> ใส่โลโก้
+              </button>
               <button
                 type="button"
                 className="btn btn--sm"

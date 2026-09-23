@@ -36,7 +36,10 @@ const CORNERS: { id: Corner; label: string }[] = [
 
 const stampedName = (name: string, type: string) => name.replace(/\.[^.]+$/, "") + "-logo." + extOf(type);
 
-export default function StampTool() {
+export default function StampTool({ incoming, onIncomingTaken }: {
+  incoming?: { id: string; name: string }[];
+  onIncomingTaken?: () => void;
+}) {
   const settings = store.use();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [over, setOver] = useState(false);
@@ -82,6 +85,38 @@ export default function StampTool() {
     pump();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Pictures sent over from the library. They come from the app's own origin
+  // (/api/file/<id>) because the bucket has no CORS policy and a canvas drawn
+  // from a cross-origin picture cannot be read back.
+  // Taken once per batch, tracked by what was sent: clearing the hand-off
+  // re-runs this effect, and a cleanup that aborted the fetch mid-flight left
+  // the tool empty.
+  const taken = useRef("");
+  useEffect(() => {
+    if (!incoming || incoming.length === 0) return;
+    const batch = incoming.map((i) => i.id).join(",");
+    if (taken.current === batch) return;
+    taken.current = batch;
+
+    void (async () => {
+      const files: File[] = [];
+      for (const item of incoming) {
+        try {
+          const res = await fetch(`/api/file/${item.id}`);
+          if (!res.ok) continue;
+          const blob = await res.blob();
+          const ext = blob.type === "image/png" ? "png" : blob.type === "image/jpeg" ? "jpg" : "webp";
+          files.push(new File([blob], `${item.name || "รูป"}.${ext}`, { type: blob.type }));
+        } catch { /* one that will not load is not worth stopping the rest */ }
+      }
+      if (files.length === 0) { say("โหลดรูปจากคลังไม่ได้"); onIncomingTaken?.(); return; }
+      add(files);
+      if (files.length < incoming.length) say(`โหลดได้ ${files.length} จาก ${incoming.length} รูป`);
+      onIncomingTaken?.();
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incoming]);
 
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
@@ -148,7 +183,7 @@ export default function StampTool() {
           <div className="shrink-empty">
             <span className="empty-orb"><ImagePlus size={30} /></span>
             <b>โยนรูปสินค้าเข้ามาได้เลย</b>
-            <span>ลากวาง · Ctrl+V · หรือกดตรงนี้เพื่อเลือกไฟล์ · ใส่โลโก้ให้ทุกใบ</span>
+            <span>ลากวาง · Ctrl+V · กดตรงนี้เพื่อเลือกไฟล์ · หรือเลือกรูปในคลังแล้วกด “ใส่โลโก้”</span>
             <small>ทำในเบราว์เซอร์ทั้งหมด ไม่มีอะไรถูกอัปโหลด</small>
           </div>
         ) : (

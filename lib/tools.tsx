@@ -14,15 +14,27 @@ import { Minimize2, Replace, Stamp, Crop, MessageSquareText, Calculator, QrCode,
 
 export type ToolCategory = "image" | "text" | "shop";
 
+/** What every tool component may be given. */
+export type ToolProps = {
+  isOwner?: boolean;
+  /** Pictures picked in the library, for a tool to work on. */
+  incoming?: { id: string; name: string }[];
+  /** Called once the tool has taken them. */
+  onIncomingTaken?: () => void;
+};
+
 export type ToolDef = {
   slug: string;
   name: string;
   blurb: string;
   category: ToolCategory;
   Icon: ComponentType<{ size?: number }>;
+  /** Pictures handed to a tool from the library: the ids of what was picked,
+   *  which the tool fetches from /api/file/<id>. */
   /** Present once the tool exists; absent while it is only planned.
-   *  Tools that keep shared state are told whether this session may write. */
-  component?: ComponentType<{ isOwner?: boolean }>;
+   *  Tools that keep shared state are told whether this session may write,
+   *  and which pictures the library just sent over. */
+  component?: ComponentType<ToolProps>;
 };
 
 export const CATEGORY_LABEL: Record<ToolCategory, string> = { image: "ภาพ", text: "ข้อความ", shop: "ร้าน" };
