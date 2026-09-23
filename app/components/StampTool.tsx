@@ -15,6 +15,8 @@ import { DEFAULT_WATERMARK, watermark, type Corner, type WatermarkSettings } fro
 import { asPng, extOf, zipOf } from "@/lib/shrink";
 import { settingsStore } from "@/lib/settings-store";
 import { uploadToVault } from "@/lib/actions";
+import { addFooter, loadFooters, removeFooter } from "@/lib/capture-actions";
+import type { VaultFooter } from "@/lib/types";
 import type { ToolProps } from "@/lib/tools";
 import { formatBytes } from "./ui";
 
@@ -46,6 +48,14 @@ export default function StampTool({ isOwner = false, incoming, incomingAlbumId, 
   const [shown, setShown] = useState<string | null>(null);
   /** How far a "send to the library" run has got, so the button can say. */
   const [saving, setSaving] = useState<{ done: number; total: number } | null>(null);
+  /** The shop's footer strips, shared by every machine. */
+  const [footers, setFooters] = useState<VaultFooter[]>([]);
+  const [addingFooter, setAddingFooter] = useState(false);
+  const footerInput = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    void loadFooters().then(setFooters).catch(() => undefined);
+  }, []);
   const fileInput = useRef<HTMLInputElement>(null);
   const inFlight = useRef<Set<string>>(new Set());
 
@@ -203,6 +213,34 @@ export default function StampTool({ isOwner = false, incoming, incomingAlbumId, 
       : failed || `ส่งได้ ${saved} จาก ${ready.length} รูป`);
   };
 
+  /** Takes a footer design in: into the library, then onto the shared list. */
+  const addFooterFile = async (file: File) => {
+    setAddingFooter(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const up = await uploadToVault(fd);
+      if (!up.ok) { say(up.error); return; }
+      const res = await addFooter(up.image.id, file.name.replace(/\.[^.]+$/, "").slice(0, 40));
+      if (!res.ok) { say(res.error); return; }
+      setFooters(res.footers);
+      onSavedToLibrary?.(up.image);
+      redoAll({ footerId: up.image.id, mode: settings.mode === "logo" ? "both" : settings.mode });
+      say("เพิ่มฟุตเตอร์แล้ว — ใช้ได้ทุกเครื่อง");
+    } catch {
+      say("เพิ่มฟุตเตอร์ไม่สำเร็จ");
+    } finally {
+      setAddingFooter(false);
+    }
+  };
+
+  const dropFooter = async (id: string) => {
+    const res = await removeFooter(id).catch(() => null);
+    if (!res?.ok) { say("เอาออกไม่สำเร็จ"); return; }
+    setFooters(res.footers);
+    if (settings.footerId === id) redoAll({ footerId: res.footers[0]?.id ?? null });
+  };
+
   const done = jobs.filter((j) => j.result);
   const latest = [...done].reverse()[0];
   const preview = jobs.find((j) => j.id === shown && j.result) ?? latest;
@@ -245,7 +283,7 @@ export default function StampTool({ isOwner = false, incoming, incomingAlbumId, 
                   <small className="tnum">
                     {job.result
                       ? `${job.result.width}×${job.result.height} · ${formatBytes(job.result.blob.size)} · ${extOf(job.result.blob.type)}`
-                      : job.state === "failed" ? job.error : job.state === "working" ? "กำลังใส่โลโก้…" : "รอคิว"}
+                      : job.state === "failed" ? job.error : job.state === "working" ? "กำลังใส่ให้…" : "รอคิว"}
                   </small>
                 </div>
                 {job.state === "working" && <Loader2 size={16} className="spin" style={{ color: "var(--violet-hi)" }} />}
@@ -275,6 +313,51 @@ export default function StampTool({ isOwner = false, incoming, incomingAlbumId, 
 
       <div className="shrink-side">
         <div>
+          <span className="f-lbl">ใส่อะไรลงไป</span>
+          <div className="seg seg--full" role="radiogroup">
+            {([["logo", "โลโก้มุม"], ["footer", "ฟุตเตอร์"], ["both", "ทั้งคู่"]] as [WatermarkSettings["mode"], string][]).map(([m, label]) => (
+              <button key={m} type="button" data-on={settings.mode === m} onClick={() => redoAll({ mode: m })}>{label}</button>
+            ))}
+          </div>
+        </div>
+
+        {settings.mode !== "logo" && (
+          <div>
+            <span className="f-lbl">ฟุตเตอร์ <small>แถบล่างของร้าน</small></span>
+            <div className="wm-footers">
+              {footers.map((f) => (
+                <button
+                  key={f.id} type="button" className="wm-footer" data-on={settings.footerId === f.id}
+                  title={f.name} onClick={() => redoAll({ footerId: f.id })}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={`/api/file/${f.id}`} alt="" />
+                  {isOwner && (
+                    <i
+                      role="button" tabIndex={-1} title="เอาออกจากรายการ"
+                      onClick={(e) => { e.stopPropagation(); void dropFooter(f.id); }}
+                    >
+                      <X size={11} />
+                    </i>
+                  )}
+                </button>
+              ))}
+              {isOwner && (
+                <button type="button" className="wm-footer wm-footer--add" onClick={() => footerInput.current?.click()} disabled={addingFooter}>
+                  {addingFooter ? <Loader2 size={16} className="spin" /> : <ImagePlus size={16} />}
+                  <span>เพิ่ม</span>
+                </button>
+              )}
+              {footers.length === 0 && !isOwner && <p className="wm-footer-empty">เจ้าของร้านยังไม่ได้เพิ่มฟุตเตอร์</p>}
+            </div>
+            <input
+              ref={footerInput} type="file" accept="image/png,image/webp,image/jpeg" hidden
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) void addFooterFile(f); e.target.value = ""; }}
+            />
+          </div>
+        )}
+
+        <div hidden={settings.mode === "footer"}>
           <span className="f-lbl">วางโลโก้ตรงไหน</span>
           <div className="wm-pos" role="radiogroup" aria-label="ตำแหน่งโลโก้">
             {CORNERS.map((c) => (
@@ -288,7 +371,7 @@ export default function StampTool({ isOwner = false, incoming, incomingAlbumId, 
           </div>
         </div>
 
-        <div>
+        <div hidden={settings.mode === "footer"}>
           <span className="f-lbl">ขนาดโลโก้</span>
           <label className="shrink-slider">
             <span className="tnum">{Math.round(settings.size * 100)}%</span>
@@ -299,7 +382,7 @@ export default function StampTool({ isOwner = false, incoming, incomingAlbumId, 
           </label>
         </div>
 
-        <div>
+        <div hidden={settings.mode === "footer"}>
           <span className="f-lbl">ความชัด</span>
           <label className="shrink-slider">
             <span className="tnum">{Math.round(settings.opacity * 100)}%</span>
@@ -310,7 +393,7 @@ export default function StampTool({ isOwner = false, incoming, incomingAlbumId, 
           </label>
         </div>
 
-        <div>
+        <div hidden={settings.mode === "footer"}>
           <span className="f-lbl">ข้อความใต้โลโก้ <small>(ไม่ใส่ก็ได้)</small></span>
           <input
             className="wm-caption" type="text" maxLength={40} placeholder="เช่น @bubbleshop หรือ Line: bubble"

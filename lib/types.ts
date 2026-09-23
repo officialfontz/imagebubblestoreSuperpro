@@ -129,15 +129,28 @@ export type VaultReply = {
   group: "general" | "gamepass" | "robux";
 };
 
+/**
+ * A footer strip the shop lays over the bottom of a picture — the contact bar
+ * with the logo, the page and the QR. It is an ordinary library picture with
+ * a transparent top; this list is only which ones are offered in the tool, so
+ * every machine has the same few.
+ */
+export type VaultFooter = {
+  /** The library image this footer is. */
+  id: string;
+  name: string;
+};
+
 export type VaultData = {
   version: 1;
   albums: VaultAlbum[];
   images: VaultImage[];
   staff: VaultStaff[];
   replies: VaultReply[];
+  footers: VaultFooter[];
 };
 
-export const emptyVault = (): VaultData => ({ version: 1, albums: [], images: [], staff: [], replies: [] });
+export const emptyVault = (): VaultData => ({ version: 1, albums: [], images: [], staff: [], replies: [], footers: [] });
 
 /**
  * One month of delivery proof, stored as its own object.

@@ -10,7 +10,7 @@
 
 import fs from "fs/promises";
 import path from "path";
-import { emptyVault, type VaultData, type VaultAlbum, type VaultImage, type VaultReply, type VaultStaff } from "./types";
+import { emptyVault, type VaultData, type VaultAlbum, type VaultFooter, type VaultImage, type VaultReply, type VaultStaff } from "./types";
 import { isCaptureCategory } from "./types";
 import { getDriver, getCatalog, putCatalog } from "./storage";
 
@@ -137,6 +137,12 @@ function normalizeReply(raw: unknown): VaultReply | null {
   return { id, name: str(raw.name, "ข้อความ").slice(0, 40), body, group };
 }
 
+function normalizeFooter(raw: unknown): VaultFooter | null {
+  if (!isRecord(raw)) return null;
+  const id = str(raw.id);
+  return id ? { id, name: str(raw.name, "ฟุตเตอร์").slice(0, 40) } : null;
+}
+
 function normalize(raw: unknown): VaultData {
   if (!isRecord(raw)) return emptyVault();
   const albums = Array.isArray(raw.albums)
@@ -157,7 +163,10 @@ function normalize(raw: unknown): VaultData {
   const replies = Array.isArray(raw.replies)
     ? raw.replies.map(normalizeReply).filter((r): r is VaultReply => r !== null).slice(0, 200)
     : [];
-  return { version: 1, albums, images, staff, replies };
+  const footers = Array.isArray(raw.footers)
+    ? raw.footers.map(normalizeFooter).filter((f): f is VaultFooter => f !== null).slice(0, 24)
+    : [];
+  return { version: 1, albums, images, staff, replies, footers };
 }
 
 // ── Read / write ──────────────────────────────────────────────────────────────

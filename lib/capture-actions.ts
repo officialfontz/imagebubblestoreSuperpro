@@ -16,7 +16,7 @@ import {
   monthOf, putCaptureSidecar, recentMonths, shopDay, updateCaptureMonth,
 } from "./captures";
 import type { ActionResult } from "./actions";
-import type { CaptureCategory, VaultImage, VaultReply, VaultStaff } from "./types";
+import type { CaptureCategory, VaultFooter, VaultImage, VaultReply, VaultStaff } from "./types";
 import { isCaptureCategory } from "./types";
 
 // ── Team ──────────────────────────────────────────────────────────────────────
@@ -287,4 +287,44 @@ export async function saveReplies(replies: VaultReply[]): Promise<ActionResult<{
   });
   if ("error" in res) return { ok: false, error: res.error };
   return { ok: true, replies: res.replies };
+}
+
+// ── Footers ───────────────────────────────────────────────────────────────────
+// The contact strips laid over the bottom of a promo picture. Each one is an
+// ordinary library image; this is only the short list the tool offers, kept in
+// the vault so every machine has the same footers to choose from.
+
+export async function loadFooters(): Promise<VaultFooter[]> {
+  await requireAuth();
+  const data = await loadVault();
+  const ids = new Set(data.images.map((i) => i.id));
+  // A footer whose picture was deleted is not a footer any more.
+  return data.footers.filter((f) => ids.has(f.id));
+}
+
+export async function addFooter(imageId: string, name: string): Promise<ActionResult<{ footers: VaultFooter[] }>> {
+  await requireOwner();
+  const id = String(imageId ?? "");
+  const res = await updateVault<{ footers: VaultFooter[] } | { missing: true }>((data) => {
+    if (!data.images.some((i) => i.id === id)) return { next: data, result: { missing: true as const } };
+    data.footers = [
+      { id, name: String(name ?? "").trim().slice(0, 40) || "ฟุตเตอร์" },
+      ...data.footers.filter((f) => f.id !== id),
+    ].slice(0, 24);
+    return { next: data, result: { footers: data.footers } };
+  });
+  if ("error" in res) return { ok: false, error: res.error };
+  if ("missing" in res) return { ok: false, error: "ไม่พบรูปนี้ในคลัง" };
+  return { ok: true, footers: res.footers };
+}
+
+export async function removeFooter(imageId: string): Promise<ActionResult<{ footers: VaultFooter[] }>> {
+  await requireOwner();
+  const id = String(imageId ?? "");
+  const res = await updateVault<{ footers: VaultFooter[] }>((data) => {
+    data.footers = data.footers.filter((f) => f.id !== id);
+    return { next: data, result: { footers: data.footers } };
+  });
+  if ("error" in res) return { ok: false, error: res.error };
+  return { ok: true, footers: res.footers };
 }
