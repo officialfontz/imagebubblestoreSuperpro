@@ -10,10 +10,12 @@
 // it, so a change of corner or opacity is seen before anything is downloaded.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Clipboard, Download, Trash2, Check, Loader2, ImagePlus, X } from "lucide-react";
+import { Clipboard, Download, Trash2, Check, Loader2, ImagePlus, Upload, X } from "lucide-react";
 import { DEFAULT_WATERMARK, watermark, type Corner, type WatermarkSettings } from "@/lib/watermark";
 import { asPng, extOf, zipOf } from "@/lib/shrink";
 import { settingsStore } from "@/lib/settings-store";
+import { uploadToVault } from "@/lib/actions";
+import type { ToolProps } from "@/lib/tools";
 import { formatBytes } from "./ui";
 
 type Result = { blob: Blob; url: string; width: number; height: number };
@@ -36,15 +38,14 @@ const CORNERS: { id: Corner; label: string }[] = [
 
 const stampedName = (name: string, type: string) => name.replace(/\.[^.]+$/, "") + "-logo." + extOf(type);
 
-export default function StampTool({ incoming, onIncomingTaken }: {
-  incoming?: { id: string; name: string }[];
-  onIncomingTaken?: () => void;
-}) {
+export default function StampTool({ isOwner = false, incoming, incomingAlbumId, onIncomingTaken, onSavedToLibrary }: ToolProps) {
   const settings = store.use();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [over, setOver] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [shown, setShown] = useState<string | null>(null);
+  /** How far a "send to the library" run has got, so the button can say. */
+  const [saving, setSaving] = useState<{ done: number; total: number } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const inFlight = useRef<Set<string>>(new Set());
 
@@ -165,6 +166,41 @@ export default function StampTool({ incoming, onIncomingTaken }: {
     if (done.length === 1) { downloadOne(done[0]); return; }
     const zip = await zipOf(done.map((j) => ({ name: stampedName(j.file.name, j.result!.blob.type), blob: j.result!.blob })));
     save(zip, `ใส่โลโก้-${new Date().toISOString().slice(0, 10)}.zip`);
+  };
+
+  /**
+   * Puts the stamped copies into the library as new pictures. The originals
+   * are left alone: a logo burned into the only copy is not something anyone
+   * can take back.
+   */
+  const sendToLibrary = async () => {
+    const ready = jobs.filter((j) => j.result);
+    if (ready.length === 0 || saving) return;
+    setSaving({ done: 0, total: ready.length });
+    let saved = 0;
+    let failed = "";
+    for (const job of ready) {
+      const name = stampedName(job.file.name, job.result!.blob.type);
+      const fd = new FormData();
+      fd.append("file", new File([job.result!.blob], name, { type: job.result!.blob.type }));
+      if (incomingAlbumId) fd.append("albumId", incomingAlbumId);
+      try {
+        const res = await uploadToVault(fd);
+        if (res.ok) {
+          saved += 1;
+          onSavedToLibrary?.(res.image);
+        } else {
+          failed = res.error;
+        }
+      } catch {
+        failed = "ส่งเข้าคลังไม่สำเร็จ";
+      }
+      setSaving({ done: saved, total: ready.length });
+    }
+    setSaving(null);
+    say(saved === ready.length
+      ? `ส่งเข้าคลังแล้ว ${saved} รูป — อยู่ในคลังรูปเลย`
+      : failed || `ส่งได้ ${saved} จาก ${ready.length} รูป`);
   };
 
   const done = jobs.filter((j) => j.result);
@@ -309,6 +345,15 @@ export default function StampTool({ incoming, onIncomingTaken }: {
           >
             <Clipboard size={16} /> {done.length > 1 ? "คัดลอกรูปที่เลือก · วางได้เลย" : "คัดลอก · วางได้เลย"}
           </button>
+          {isOwner && (
+            <button
+              type="button" className="btn" disabled={done.length === 0 || saving !== null}
+              onClick={() => void sendToLibrary()}
+            >
+              <Upload size={15} />
+              {saving ? `กำลังส่ง ${saving.done}/${saving.total}…` : `ส่งเข้าคลัง${done.length > 1 ? ` ${done.length} รูป` : ""}`}
+            </button>
+          )}
           <div className="shrink-two">
             <button type="button" className="btn" disabled={done.length === 0} onClick={() => void downloadAll()}>
               <Download size={15} /> {done.length > 1 ? "ดาวน์โหลด ZIP" : "ดาวน์โหลด"}

@@ -10,6 +10,7 @@
 // the server before rendering, and a client module cannot be called from it.
 
 import type { ComponentType } from "react";
+import type { VaultImage } from "./types";
 import { Minimize2, Replace, Stamp, Crop, MessageSquareText, Calculator, QrCode, Eraser } from "lucide-react";
 
 export type ToolCategory = "image" | "text" | "shop";
@@ -19,8 +20,14 @@ export type ToolProps = {
   isOwner?: boolean;
   /** Pictures picked in the library, for a tool to work on. */
   incoming?: { id: string; name: string }[];
+  /** The collection those pictures came from, so what the tool makes can go
+   *  back beside them. */
+  incomingAlbumId?: string | null;
   /** Called once the tool has taken them. */
   onIncomingTaken?: () => void;
+  /** A picture the tool put into the library, so the grid shows it without a
+   *  reload. */
+  onSavedToLibrary?: (image: VaultImage) => void;
 };
 
 export type ToolDef = {

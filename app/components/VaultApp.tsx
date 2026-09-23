@@ -130,8 +130,10 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
   const [sort, setSort] = useState<Sort>("new");
   const [dense, setDense] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  /** Pictures on their way from the library into a tool. */
+  /** Pictures on their way from the library into a tool, and the collection
+   *  they came from. */
   const [handoff, setHandoff] = useState<{ id: string; name: string }[] | null>(null);
+  const [handoffAlbum, setHandoffAlbum] = useState<string | null>(null);
   const [jobs, setJobs] = useState<UploadJob[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [dragFiles, setDragFiles] = useState(false);
@@ -1073,7 +1075,15 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
           {inTextTool ? (
             active === TOOLS_HUB || !activeTool?.component
               ? <ToolsHub onOpen={setActive} />
-              : <activeTool.component isOwner={isOwner} incoming={handoff ?? undefined} onIncomingTaken={() => setHandoff(null)} />
+              : (
+                <activeTool.component
+                  isOwner={isOwner}
+                  incoming={handoff ?? undefined}
+                  incomingAlbumId={handoffAlbum}
+                  onIncomingTaken={() => setHandoff(null)}
+                  onSavedToLibrary={(image) => setImages((prev) => [image, ...prev])}
+                />
+              )
           ) : inCaptures ? (
             <CapturesView
               captures={captureList}
@@ -1216,7 +1226,11 @@ export default function VaultApp({ initialData, storage, role, initialCaptures, 
                 className="btn btn--sm"
                 title="ใส่โลโก้ร้านให้ทุกรูปที่เลือก"
                 onClick={() => {
+                  // Same collection for every one of them, or none: a stamped
+                  // copy should land beside its original, not in a pile.
+                  const albums = new Set(selectedImages.map((i) => i.albumId ?? null));
                   setHandoff(selectedImages.map((i) => ({ id: i.id, name: i.name })));
+                  setHandoffAlbum(albums.size === 1 ? [...albums][0] : null);
                   setSelected(new Set());
                   setActive(toolKey("stamp"));
                 }}
